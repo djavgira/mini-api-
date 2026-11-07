@@ -1,6 +1,15 @@
-node_modules
-dist
+# Build context exclusions for docker/Dockerfile.merged.
 .git
-.env*
-coverage
+.github
+**/node_modules
+dist
+.env
+.env.*
+!.env.example
 *.tsbuildinfo
+coverage
+target
+docs
+
+# Runtime configuration holds provider credentials; only the example is tracked.
+api.yaml

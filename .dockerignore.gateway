@@ -1,0 +1,14 @@
+# Only immutable build inputs enter the image context. Runtime configuration,
+# credentials, captures, caches and spool data stay outside it.
+**
+!Cargo.toml
+!Cargo.lock
+!.cargo/
+!.cargo/config.toml
+!src/
+!src/**
+!assets/
+!assets/**
+!README.md
+!Dockerfile
+!.dockerignore

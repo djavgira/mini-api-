@@ -8,3 +8,9 @@ dist/
 coverage/
 
 /public/uni-api-browser-helper.zip
+
+# Runtime configuration holds provider credentials; only the example is tracked.
+/api.yaml
+
+# Rust gateway build output
+/target/

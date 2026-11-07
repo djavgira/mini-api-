@@ -1,0 +1,41 @@
+#!/bin/sh
+# Converts the two configured upstream URLs into nginx-safe parts.
+# Sourced by the nginx image's docker-entrypoint.sh before envsubst runs.
+set -eu
+
+split_url() {
+    # $1 = variable name prefix, $2 = URL, $3 = allow base path (1/0)
+    _prefix=$1
+    _url=$2
+    _allow_path=$3
+    case "$_url" in
+        http://*|https://*) ;;
+        *) echo "$_prefix must be an HTTP(S) URL, got '$_url'" >&2; exit 1 ;;
+    esac
+    _scheme=${_url%%://*}
+    _rest=${_url#*://}
+    case "$_rest" in
+        *@*) echo "$_prefix must not embed credentials" >&2; exit 1 ;;
+        *\?*|*\#*) echo "$_prefix must not carry a query or fragment" >&2; exit 1 ;;
+    esac
+    _address=${_rest%%/*}
+    _path=${_rest#"$_address"}
+    case "$_address" in
+        ''|*[!A-Za-z0-9._:\[\]-]*) echo "Invalid host in $_prefix: '$_address'" >&2; exit 1 ;;
+    esac
+    case "$_path" in
+        *[!A-Za-z0-9/_.~%-]*) echo "Invalid path in $_prefix: '$_path'" >&2; exit 1 ;;
+    esac
+    if [ "$_allow_path" = "0" ] && [ -n "$_path" ] && [ "$_path" != "/" ]; then
+        echo "$_prefix must not carry a base path: '$_path'" >&2
+        exit 1
+    fi
+    eval "export ${_prefix}_SCHEME=\"\$_scheme\""
+    eval "export ${_prefix}_ADDRESS=\"\$_address\""
+    if [ "$_allow_path" = "1" ]; then
+        eval "export ${_prefix}_PATH=\"\$_path\""
+    fi
+}
+
+split_url ANALYTICS_UPSTREAM "${ANALYTICS_UPSTREAM:-http://127.0.0.1:8080}" 1
+split_url GATEWAY_UPSTREAM "${GATEWAY_UPSTREAM:-http://127.0.0.1:8001}" 0

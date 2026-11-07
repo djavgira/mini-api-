@@ -1,0 +1,31 @@
+# Copy to api.yaml and edit. api.yaml is git ignored because it holds secrets.
+#
+# The first api_keys entry is the gateway administrator: it is the only key
+# allowed to read the platform observation API and to edit channel settings.
+# Keep it identical to GATEWAY_ADMIN_KEY in .env.
+
+api_keys:
+  - api: change-me-to-a-random-key
+    role: admin
+    model:
+      - all
+
+providers:
+  - provider: openai
+    base_url: https://api.openai.com
+    api: change-me-to-your-upstream-key
+    model:
+      - gpt-4o-mini
+
+# More provider types: anthropic, gemini, vertex, azure, cloudflare, databricks,
+# aws, codex, openrouter, deepseek, jina, tavily, doubao-translate, or any
+# name when base_url speaks the OpenAI protocol.
+#
+# Optional per-key limits:
+#
+# api_keys:
+#   - api: sk-limited
+#     model:
+#       - gpt-4o-mini
+#     rate_limit: 60/min
+#     total_limit: 1000

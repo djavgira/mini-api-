@@ -1,0 +1,105 @@
+# Combined uni-api image: Rust gateway + console analysis service + console SPA.
+#
+# Stage layout keeps the three toolchains independent so their layers cache
+# separately, then assembles one runtime image where:
+#   - nginx serves the SPA on :8000 and proxies /analytics/ -> analysis service
+#     and /v1/ -> the gateway;
+#   - supervisord keeps all three processes alive;
+#   - the gateway still reads api.yaml through UNI_API_CONFIG_PATH.
+
+ARG RUST_IMAGE=lukemathwalker/cargo-chef:0.1.71-rust-1.84-bullseye@sha256:e372d5aae4166598a5e4ce08c0eb75af0e7ec909d7e19188ebf669d79fa62355
+ARG GO_IMAGE=golang:1.26-bookworm
+ARG NODE_IMAGE=node:24-bookworm-slim
+ARG NGINX_IMAGE=nginx:stable-alpine
+
+# ---------------------------------------------------------------- gateway ----
+FROM ${RUST_IMAGE} AS chef
+WORKDIR /workspace
+COPY Cargo.toml Cargo.lock ./
+COPY .cargo ./.cargo
+RUN mkdir -p gateway-src && printf 'fn main() {}\n' > gateway-src/main.rs && touch gateway-src/lib.rs && cargo chef prepare --recipe-path recipe.json
+
+FROM chef AS gateway-planner
+RUN cargo chef cook --release --locked --recipe-path recipe.json
+
+FROM gateway-planner AS gateway-builder
+COPY Cargo.toml Cargo.lock ./
+COPY README.md GATEWAY.md ./
+COPY assets ./assets
+COPY gateway-src ./gateway-src
+RUN cargo build --release --locked --bin uni-api-front && cp target/release/uni-api-front /tmp/uni-api-front
+
+# ------------------------------------------------------- analysis service ----
+FROM ${GO_IMAGE} AS analytics-builder
+WORKDIR /src
+COPY analytics-api/go.mod analytics-api/go.sum ./
+RUN go mod download
+COPY analytics-api ./
+ENV CGO_ENABLED=0
+RUN go build -trimpath -ldflags='-s -w' -o /out/analytics-api .
+
+# ----------------------------------------------------------------- console ----
+# The prebuild step packages the browser helper and needs no network access.
+FROM ${NODE_IMAGE} AS console-builder
+WORKDIR /app
+COPY package.json package-lock.json ./
+RUN npm ci
+COPY . .
+RUN npm run build
+
+# ----------------------------------------------------------------- runtime ----
+FROM debian:bookworm-slim AS runtime
+
+ARG SOURCE_COMMIT=unknown
+ENV SOURCE_COMMIT=${SOURCE_COMMIT} \
+    MALLOC_ARENA_MAX=2 \
+    MALLOC_MMAP_THRESHOLD_=131072 \
+    MALLOC_TRIM_THRESHOLD_=131072 \
+    UNI_API_RUNTIME=rust \
+    # Console analysis service. It listens on loopback; nginx is the only entry.
+    LISTEN_ADDR=127.0.0.1:8080 \
+    DATA_DIR=/data \
+    UNI_API_URL=http://127.0.0.1:8001 \
+    # nginx upstreams, substituted into the template at container start.
+    ANALYTICS_UPSTREAM=http://127.0.0.1:8080 \
+    GATEWAY_UPSTREAM=http://127.0.0.1:8001 \
+    NGINX_ENVSUBST_FILTER="^ANALYTICS_UPSTREAM_(SCHEME|ADDRESS|PATH)$|^GATEWAY_UPSTREAM_(SCHEME|ADDRESS)$" \
+    # Files below /home are the operator-facing mount points.
+    UNI_API_CONFIG_PATH=/home/api.yaml \
+    RUST_REQUEST_SPOOL_DIRECTORY=/home/data/requests \
+    FACTS_SPOOL_DIR=/home/data/facts \
+    FACTS_S3_SPOOL_DIR=/home/data/facts-s3 \
+    RUST_RESPONSES_CONFIG_SNAPSHOT_PATH=/home/data/uni-api-rust-responses-config-v1.json
+
+# The gateway is built against glibc, so the runtime is Debian as well: an
+# Alpine base cannot execute it. ca-certificates: upstream TLS.
+# nginx + supervisor: process management. curl: healthcheck.
+RUN set -eux; \
+    apt-get update; \
+    DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+        ca-certificates nginx-light supervisor curl gettext-base; \
+    rm -rf /var/lib/apt/lists/*; \
+    groupadd -r gateway; useradd -r -g gateway -d /home -s /usr/sbin/nologin gateway; \
+    mkdir -p /home/data /data /etc/supervisor/conf.d /usr/share/nginx/html /var/log/nginx; \
+    chown -R gateway:gateway /home /data; \
+    rm -f /etc/nginx/sites-enabled/default; \
+    # nginx-light ships the upstream pool in http{}; keep our server block only.
+    printf 'user root;\nworker_processes auto;\npid /run/nginx.pid;\nerror_log /dev/stderr warn;\n\nevents { worker_connections 1024; }\n\nhttp {\n    include /etc/nginx/mime.types;\n    default_type application/octet-stream;\n    sendfile on;\n    keepalive_timeout 65;\n    include /etc/nginx/conf.d/*.conf;\n}\n' > /etc/nginx/nginx.conf
+
+COPY --from=gateway-builder /tmp/uni-api-front /usr/local/bin/uni-api-front
+COPY --from=analytics-builder /out/analytics-api /usr/local/bin/analytics-api
+COPY --from=analytics-builder /src/fingerprint /usr/local/share/analytics-api/fingerprint
+COPY --from=console-builder /app/dist /usr/share/nginx/html
+COPY docker/nginx.conf /etc/nginx/templates/default.conf.template
+COPY docker/15-upstreams.envsh /docker-entrypoint.d/15-upstreams.envsh
+COPY docker/supervisord.conf /etc/supervisor/supervisord.conf
+COPY docker/uni-api-programs.conf /etc/supervisor/conf.d/uni-api.conf
+COPY docker/parse-api-keys.awk /usr/local/bin/parse-api-keys.awk
+COPY docker/entrypoint.sh /usr/local/bin/entrypoint.sh
+RUN chmod 755 /docker-entrypoint.d/15-upstreams.envsh /usr/local/bin/entrypoint.sh /usr/local/bin/parse-api-keys.awk
+
+EXPOSE 8000
+WORKDIR /home
+HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
+    CMD curl -fsS -o /dev/null http://127.0.0.1:8000/healthz || exit 1
+ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]
