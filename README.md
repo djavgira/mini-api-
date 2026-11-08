@@ -1,28 +1,90 @@
-# uni-api console
+# uni-api
 
-A new React + TypeScript workspace for observing uni-api model channels. This
-repository's previous frontend has been replaced; historical versions remain in
-Git history.
+A unified gateway for large language model APIs, plus a console for observing and
+operating it. Both ship in one image: nginx serves the console and proxies model
+traffic to the gateway running beside it.
 
-## Run locally
+## Quick start
 
 ```sh
-npm ci
-npm run dev
+cp .env.example .env          # fill in the four required secrets
+cp api.example.yaml api.yaml  # add your providers and api keys
+docker compose up -d --build
 ```
 
-Open http://127.0.0.1:4173 and enter your uni-api public endpoint and the first
-configured key (or an admin key). The backend must provide the platform APIs
-listed below and allow the browser origin through CORS. HTTPS deployments require
-an HTTPS backend endpoint. Verified connections are saved in the current tab's
-`sessionStorage`, allowing reloads to restore the connection without another login.
-The platform key is revalidated before any channel queries. Authentication rejection
-clears the saved connection; a temporary network failure keeps it available for retry.
-Disconnect clears the credential and query cache. Credentials are never written to
-`localStorage`; normal tab closure ends their session (browser session restore may
-retain session storage). Theme and filter preferences are saved locally. Filters are
-stored separately for each normalized service address and restored after reconnecting.
-Only the selected filter key's opaque ID is stored, never the access credential.
+Open http://localhost:8000 and sign in with `ADMIN_USERNAME` / `ADMIN_PASSWORD`.
+The console already lists the local gateway as a source, so channels appear
+without any manual connection setup.
+
+`api.yaml` and `.env` hold credentials and are git ignored. Never commit them.
+
+## Routing
+
+One published port. nginx owns it and is the only surface reachable from
+outside the container:
+
+| Path            | Destination                                        |
+| --------------- | -------------------------------------------------- |
+| `/v1/*`         | gateway, loopback `8001` — model traffic and the platform API |
+| `/analytics/*`  | analysis service, loopback `8080` — console backend |
+| `/analytics/v1/runtime-{facts,restore}/*` | analysis service, prefix stripped for machine ingestion |
+| everything else | console single-page app                            |
+
+The gateway and the analysis service both bind loopback only, so publishing the
+gateway port directly is never necessary. Requests to `/v1/` need a key from
+`api.yaml`; anonymous calls are rejected.
+
+## Configuration
+
+`.env` carries deployment secrets:
+
+| Variable | Required | Meaning |
+| --- | --- | --- |
+| `POSTGRES_PASSWORD` | yes | Shared database password, inside the compose network only |
+| `CONTROL_MASTER_KEY` | yes | Encrypts console-stored source credentials, 32+ characters |
+| `ADMIN_PASSWORD` | yes | First console login, 12–72 bytes |
+| `GATEWAY_ADMIN_KEY` | yes | One key from `api.yaml`; identifies the gateway to the console |
+| `UNI_API_PORT` | no | Published port, default `8000` |
+| `PUBLIC_ORIGIN` | no | Browser-facing origin, default `http://127.0.0.1:8000` |
+| `INSECURE_COOKIE` | no | Set `false` once served over HTTPS, default `true` |
+
+`GATEWAY_ADMIN_KEY` must be the first entry in `api.yaml`'s `api_keys`, or a
+key whose `role` is `admin` or starts with `admin-`. Only such a key may read
+the platform observation API and edit channel settings. The entrypoint reads
+`api.yaml`, registers that key as the console's source credential, and uses it
+to authenticate the runtime-fact export; the console reuses the stored value,
+so the two never drift apart.
+
+`api.yaml` carries providers and caller keys. `api.example.yaml` shows the
+minimum, and GATEWAY.md documents provider options, model mapping, rate limits,
+per-key preferences and the rest of the gateway configuration language.
+
+The database budget is 10 GB with oldest-first reclamation; see
+[PostgreSQL analysis service](#postgresql-analysis-service) for the eviction
+rules, partitioning and retention boundary.
+
+## Repository layout
+
+| Path | Contents |
+| --- | --- |
+| `src/`, `index.html`, `package.json` | console frontend (Vite, React, TypeScript) |
+| `analytics-api/` | console backend and channel analysis (Go) |
+| `gateway-src/`, `gateway-tests/`, `assets/` | Rust gateway |
+| `docker/` | image build, nginx site template, entrypoint, supervision |
+| `docs/` | console design notes; gateway notes under `docs/gateway/` |
+| `GATEWAY.md`, `GATEWAY_CN.md` | gateway reference |
+
+## Operating notes
+
+- Rebuilding replaces the image, not the data: `postgres-data` and
+  `uni-api-data` are volumes. `docker compose down -v` deletes request history
+  and console configuration.
+- `docker/smoke-test.sh http://localhost:8000 <api-key>` probes the routing
+  table and reports which paths are misrouted.
+- Logs are per-program in container output; the nginx access log is structured
+  JSON with `request_id`, upstream address, status and timings.
+- A fresh install creates the console administrator only while the user table
+  is empty. Change the password from inside the console afterwards.
 
 ## Features
 
@@ -123,9 +185,12 @@ Users sign in with a console username and password. The API stores bcrypt passwo
 hashes and hashed, revocable 30-day sessions in PostgreSQL. Cookies are HttpOnly,
 Secure and SameSite=Strict. The frontend never stores a source credential.
 
-Under Sources, add a name, uni-api URL and platform administrator key. The gateway reports facts to the source-bound authenticated ingestion endpoint. The backend encrypts
-credentials with `CONTROL_MASTER_KEY`, validates platform access and proxies only
-observation endpoints. The default view combines sources; selecting a source
+The entrypoint registers the local gateway automatically, so a fresh install needs
+no manual source setup. Under Sources, further gateways are added by name, uni-api
+URL and platform administrator key. The gateway reports facts to the source-bound
+authenticated ingestion endpoint. The backend encrypts credentials with
+`CONTROL_MASTER_KEY`, validates platform access and proxies only observation
+endpoints. The default view combines sources; selecting a source
 scopes catalog, API keys, concurrency, balances and historical analytics. Same-name
 providers are separate rows. Shared upstream wallet totals must not be added across
 sources: these are account-level charges, not source-attributable request costs.
@@ -140,17 +205,17 @@ Network failure never downgrades an enabled account service to legacy mode.
 
 The API and frontend are stateless. All durable settings, source/account credentials,
 admin password hashes, sessions, prices, encrypted gateway recovery documents,
-detection results and request history live in PostgreSQL. `CONTROL_DATABASE_URL`
-(or `DATABASE_URL`) and `CONTROL_MASTER_KEY` remain bootstrap secrets supplied by
-the deployment. Credentials in the database remain encrypted; the master key is
-not stored beside their ciphertext. No DuckDB engine, S3 client, checkpoint restore,
-archive scan or backup job runs in this release. Backups are not configured.
+detection results and request history live in PostgreSQL. Credentials in the
+database remain encrypted; the master key is not stored beside their ciphertext.
 
-Use `docker-compose.yml` or an existing managed PostgreSQL database. Set
-`POSTGRES_PASSWORD`, a random `CONTROL_MASTER_KEY` (at least 32 characters),
-`ADMIN_USERNAME` and `ADMIN_PASSWORD` (12–72 bytes). Bootstrap creates only the
-first administrator. Restarting/releasing the API reuses committed data and runs
-only versioned additive schema migrations; it does not reimport request history.
+The compose file runs one PostgreSQL instance shared by both durable stores: the
+gateway keeps its request and channel statistics there, and the console keeps the
+rest. The database is not published outside the compose network. Backups are not
+configured.
+
+The console creates only the first administrator, and only while the user table
+is empty. Restarting the service reuses committed data and runs only versioned
+additive schema migrations; it does not reimport request history.
 `/readyz` verifies database access before the candidate serves traffic.
 
 Gateway facts use `POST /v1/runtime-facts/{source_id}` with a source-bound Bearer
@@ -188,212 +253,52 @@ made in either release and blocks completion on conflicts. Legacy bucket setting
 are ignored at runtime except for an activation guard preventing an unprepared
 upgrade. See [the cutover design](docs/postgresql-only-storage.md).
 
+## Local development
+
+The console runs on Vite and talks to a gateway and analysis service it does
+not start itself:
+
+```sh
+npm ci
+npm run dev            # http://127.0.0.1:4173
+```
+
+For account mode, run the analysis service and nginx locally and point
+`ANALYTICS_UPSTREAM` at it. For the legacy direct-key connection, enter a
+gateway endpoint and an admin key in the connection form; the gateway must
+allow the browser origin through CORS. Verified connections stay in the current
+tab's `sessionStorage`, so reloads do not require another login, and credentials
+are never written to `localStorage`. The platform key is revalidated before any
+channel query: an authentication rejection clears the saved connection, while a
+temporary network failure keeps it for retry. Theme and filter preferences are
+stored locally, filters per normalized service address, and only the selected
+key's opaque ID — never the credential — is persisted.
+
 ## Build and verify
 
 ```sh
-npm test
-npm run build
-npm run preview
+npm ci
+npm test               # console unit tests
+npm run build          # tsc + vite -> dist/
+
+cd analytics-api
+go vet ./... && go build ./...
+TEST_CONTROL_DATABASE_URL='postgres://postgres:secret@127.0.0.1:5432/analytics_test?sslmode=disable' \
+  go test ./...
+cd ..
+
+cargo test             # gateway
+docker compose build   # the deployable image
 ```
 
-Vite creates `dist/`. The Dockerfile builds with Node 24 and serves static files
-with Nginx. `/healthz` returns a JSON health signal. GitHub Actions tests and builds
-on push and pull requests. Dependencies are pinned through `package-lock.json`.
-
-## Fugue source deployment
-
-```sh
-fugue --account yym68686@gmail.com --project uni-api-console \
-  app create uni-api-console --github https://github.com/yym68686/uni-api-web \
-  --branch main --build dockerfile --dockerfile Dockerfile --port 80
-fugue --account yym68686@gmail.com --project uni-api-console app build uni-api-console
-fugue --account yym68686@gmail.com --project uni-api-console app deploy uni-api-console
-fugue --account yym68686@gmail.com --project uni-api-console app source sync resume uni-api-console
-```
-
-Fugue keeps `yym68686/uni-api-web` `main` as the durable source and automatically
-builds/deploys changes. It is a separate app from the existing 0-0 product frontend.
-No model service settings or production routing are changed by this application.
-
-## 渠道检测
-
-渠道检测已合并到「渠道观测」，无独立检测页面。搜索框同行点击「降智检测」只展开操作，按钮变为「一键检测」「取消检测」，每行显示「重新检测」。点击「取消检测」停止未完成的批量及单行检测并隐藏操作，已完成和上次检测结果保留；顺序调整草稿不受影响。检测使用观测页的来源、API key、模型、搜索、状态、余额、排序等筛选。筛选只决定渠道集合；检测固定请求 `gpt-6-astra` 的非流式 `/v1/responses`，使用用户指定的糖果数量推理题。每个来源的渠道去重后检测一次，一键检测覆盖全部匹配页，所有筛选渠道同时发起，可取消仍在进行的检测。
-
-只读取成功、完整 Responses 的 assistant output_text：回复包含 `21` 为绿勾「不降智」，不包含 `21` 为红叉「降智」。这是用户指定的回复规则，不是完整能力评测；请求失败另列。检测消耗正常模型用量。
-
-控制台使用登录会话调用 `GET/POST /v1/sources/{id}/channel-checks`，凭据只留在服务端。最近一次结果、原始文本、时间、耗时与请求 ID 保存在 PostgreSQL 的 `console_channel_checks`，按来源与渠道隔离，重启后仍在。数据库短期租约避免同一渠道重复检测，请求期间不占用数据库连接。uni-api 须支持 `capabilities.targeted_responses`；旧版本不会发送检测请求。使用管理员渠道定向头，不会回退、重试或发起竞速请求，不改动现有路由配置。
-
-## 临时渠道控制
-
-渠道观测表格新增「是否降智」，按来源和渠道显示最近一次 gpt-6-astra 检测的结果及时间；未检测、无法判定、检测失败分别显示。结果独立于指标时间范围和所选模型，悬停可查看检测模型和回复。重新检测期间保留上次结果，页面刷新后读取已保存结果。
-
-渠道详情右侧显示「可用模型」。通过 sub2api 添加的渠道按来源和 provider 精确关联账号、分组，显示最近检测通过的全部模型，并标注当前 API key 已添加的模型和检测时间；普通渠道显示当前 API key 配置范围内可用的模型。列表不受表格的模型与搜索筛选影响，打开详情只读取已有结果，不发起模型检测。
-
-账户登录后，在「渠道观测」搜索框旁点击「调整顺序」，表格显示「临时控制」列，无独立渠道控制页面。点击「取消调整」会放弃全部未保存草稿并隐藏该列，已应用规则保留。编辑时直接使用原有筛选、指标、趋势和分页。每行自动对应自己的来源。上下移动和停用先形成草稿，搜索框同行的「应用」「放弃」位于「撤销更改」旁边，统一处理全部未保存草稿，包括筛选隐藏的来源、API key 和模型范围。一次应用会保存所有范围，同一来源的多个范围依次使用已确认的最新版本提交；成功后立即显示生效顺序，失败的草稿保留并提示，不覆盖外部修改。「放弃」仅清除未保存草稿；「撤销更改」清除已生效规则，悬停可查看具体来源、API key 和模型范围，不展示额外说明文字。有多个来源范围时，从按钮菜单中选择要撤销的一项；不会一次撤销其他来源。
-
-规则在 uni-api 中仍为进程内状态，不写入原始配置文件。来源设置默认开启“保留临时配置”：控制台将已应用的临时渠道凭据、顺序和停用规则加密保存在自己的 PostgreSQL 中，在来源重启后恢复。关闭开关后不再恢复；重新开启时以当前状态为准，删除和撤销操作不会在重启后复活。恢复使用实例标识和版本校验，新实例已有不同修改时暂停并显示冲突。控制台不可达时会保留已有备份。
-
-支持启动恢复的 uni-api 可配置 `UNI_API_CONTROL_RESTORE_URL=https://<console>/analytics/v1/runtime-restore/<source-id>` 和 `UNI_API_CONTROL_RESTORE_TOKEN=<此来源的平台管理密钥>`。新进程校验并一次性加载保存的全部配置后才监听端口；恢复服务不可用时等待重试。未配置这两个变量时仍保持独立运行；控制台后台约每 5 秒核对来源状态并恢复，因此不保证首个业务请求前恢复。平台密钥不返回浏览器，启动恢复端点只接受对应来源的管理凭据。
-
-顺序优先级为 key＋模型、key、模型、全局；停用规则取所有适用范围的并集，局部启用无法覆盖更广范围的停用。原有 key 权限、模型映射、端点限制、冷却和限流继续生效。已经进入的请求使用原候选列表，不强制中断。全部匹配渠道都停用时，新请求返回 503。
-
-接口：控制台 `GET/POST /analytics/v1/sources/{id}/channel-controls`，uni-api `GET/POST /v1/channel-controls`。仅接受已登录控制台会话和来源的首个配置密钥或管理员密钥。普通业务 key 无管理权限。修改写入 uni-api 审计日志，密钥仅以不可逆 ID 标识。
-
-渠道观测与顺序调整使用同一套搜索、来源、API key、模型、时间、端点、流式、余额、状态和排序筛选，支持 11 个时间范围。切换视图、时间和分页保留草稿。排序只在同一来源内调整，未显示的渠道仍保留；按成功率或延迟排序时禁用上下移动，避免混淆显示排序与路由优先级。路由修改的范围只由来源、API key 和模型决定，其他筛选只影响展示。
-
-渠道观测、余额管理的 API key 下拉框显示最终请求成功率与成功数/已完成请求数，跟随各页面独立的时间、模型筛选（观测页还跟随端点和流式状态）。未选择模型时合并所有模型。统计仅使用网关最终 `request` 事件，一次请求无论重试多少渠道都只计一次；不累计 `attempt`、hedge 取消或进行中的请求。来源相同且 key 相同才合并，历史重放按 event ID 去重；无记录显示“暂无已完成请求”，历史同步未完成时标注“部分记录”。接口 `/v1/key-request-stats` 一次聚合所有 key，使用已有的日/分钟汇总，不逐 key 拉取全量历史。“已接入 · 查看路由”中的 key 筛选显示明确标注的近 24 小时、全部模型统计。
-
-### sub2api 检测
-
-渠道管理的“添加到渠道”支持跨全部来源、全部已有 API key 接入的批量操作。编辑时，模型勾选、模型重命名、路由位置各有独立应用按钮，底部可应用全部设置；单项应用保留其余设置，位置单项只移动目标 Key 已有的同名模型。新增模型或别名放到第 1 位；指定位置超出目标路由数量时落到末位，预览展示实际最终位置。已有接入页可“删除所有已保存接入”，保留基础渠道定义和其他渠道。
-
-站点接入和原生配置渠道的编辑页共用模型选择区域，合并基础模型、已保存路由及候选模型。绑定记录本身没有模型时从渠道清单补齐；同名映射归为勾选的原模型，保留真正的独立重命名。编辑已有接入时默认保留其模型选择；新增勾选和重命名要求该模型在对应来源、渠道与凭据下检测可用，未检测和检测失败的新增模型不可选。检测成功但结束异常的模型允许手动选择；新增接入默认排除结束异常、已确认单价异常及 Tool use 失败的模型。
-
-批量预览直接复用管理页已加载的完整来源路由快照，在浏览器同步计算，点击时不逐 Key 重读接口。快照附带来源版本，并在并发读取前后核对一致性；缓存不完整时，每个来源并行读取一次完整路由（最多 4 路并发）。确认提交前重新读取全部影响范围和版本，若与预览不同则更新预览并要求再次确认，尚不执行任何修改。
-
-批量操作仅覆盖已保存接入，不创建其他 Key 的接入。站点分组按账号/分组及已确认绑定关联，原生渠道按现有名称和引擎分组合并来源。预览逐项比较实际模型映射；应用全部设置或路由位置时还比较最终位置，已一致的接入显示“已一致，无需重复应用”。中断后重新打开或点击“核对剩余接入”，按实际配置重新计算，只提交未完成项，不依赖浏览器保存的成功标记。
-
-不同来源同时执行；同一来源通过 `POST /v1/sources/{id}/channel-batch` 一次提交所有待更新 Key，在来源锁内校验版本、每 Key 并行读取路由（最多 4 路），合并成一次原子快照恢复及持久化。模型、别名、位置和删除均复用此路径。单个来源发生冲突或结果不明不阻塞其他来源，且不自动重发。批量执行不是跨来源事务，已成功来源保留；关闭网页后已发出的请求可能仍完成，下次必须核对实际配置。相同版本且目标状态已一致时，后端也跳过恢复写入。批量接口有 110 秒处理上限、115 秒响应期限，前端代理与请求等待上限为 120 秒。
-
-Tool use 检测复用 Codex 的 `additional_tools` / namespace / custom `exec` 探针，通过 `/v1/responses` 请求恰好一次 `text("TOOL_PROBE_OK");` 工具调用。逐个检测渠道全部已验证可用的模型，每个模型独立保存结果；某个模型通过不会提前结束，失败不会阻止后续模型，中断保留已完成结果。站点渠道在常规模型检测完成后自动执行，也可按当前渠道筛选范围独立批量检测或逐行重测。原生配置渠道通过来源定向检测，每个可用模型独立排队，沿用现有并发限制。
-
-结果保存到 PostgreSQL，按模型支持“支持工具调用 / 不支持工具调用 / 检测失败 / 未检测”筛选，详情展示对应模型、HTTP 状态、诊断及请求账单。全部模型视图显示支持数量，只有全部可用模型通过才归为支持；旧记录只对当时实际检测的模型有效，其他模型须重新检测。添加站点或原生渠道时，不支持或检测失败的模型默认不勾选，并显示原因；可以手动勾选，编辑已有接入保留原选择。
-
-支持判定同时读取 `response.output_item.done` 和 `response.completed.output` 并去重：成功完成、恰好一个有效 `custom_tool_call`、名称 `functions.exec`（或 `namespace=functions,name=exec` / 未带 namespace 的 `exec`）、非空 `call_id`、输入为指定文本时通过。末尾 output 为空但前面已返回完整工具调用仍通过。`NO_EXEC`、普通文本、错误工具或参数、缺少调用 ID 均未通过；超时、限流、余额不足、鉴权失败和流中断保留为“检测失败”。仅明确拒绝工具协议的 HTTP 400/422 判不支持，其他 HTTP 错误不推断工具兼容性。只保存诊断，不执行返回的代码；单次结果不能证明渠道内部删除了工具，也不保证其他模型或所有工具协议可用。该检测不修改渠道路由及其他检测结果。
-
-账户登录后，侧边栏「sub2api检测」支持添加多个 HTTPS 站点账号。邮箱、密码用于登录；验证成功后，密码、访问令牌、刷新令牌与测试 key 使用现有控制面主密钥加密保存，按控制台用户隔离。会话过期先刷新令牌，刷新失败时使用已保存密码重新登录。支持 TOTP 二次验证。要求 Turnstile 等人机验证的站点会显示「使用浏览器登录」；一次性安装 [浏览器登录助手](browser-helper/README.md) 后，在控制台填写网址、邮箱和密码，助手在正常浏览器打开原站、填写表单并接回会话，服务端复核邮箱后继续同步。添加和重新登录在模态框内完成，按用户默认授权自动勾选原站登录协议，强制人工验证和 2FA 在原站完成，无需复制 token。密码不保存到扩展存储，验证机制不被修改。登录助手安装时授予 HTTPS 站点访问权限，点击浏览器登录直接进入目标站点。
-
-添加后自动读取有权限的全部分组，为每组创建并复用 `uni-console-check-*` 专用 key，创建时不设置额度上限，检测费用由站点账号承担，不修改业务 key。同步时，对名称、分组、已保存 ID 和密钥均匹配的旧版 $1 测试 key，读取上游最新状态后将 `quota` 更新为 `0`（不限额）并回读核验，不清零累计用量；停用、过期或自定义额度的 key 保留原设置。额度耗尽、停用、过期、额度更新失败与创建失败分别提示。重复同步通过专用名称、分组校验与 Idempotency-Key 避免重复创建。可用渠道接口关闭时继续按分组运行。移除账号只删除控制台凭据与结果，上游测试 key 保留，由用户在上游撤销。
-
-支持 32 个检测模型：`gpt-6-astra`、`gpt-6.1-sol`、`gpt-6-sol`、`gpt-6-luna`、`gpt-5.6-sol`、`gpt-5.6-terra`、`gpt-5.6-luna`、`gpt-5.5`、`codex-auto-review`、`glm-5.3`、`glm-5.3-flash`、`kimi-k3.1-pro`、`kimi-k3`、`deepseek-v4.1-flash-1017`、`deepseek-v4.1-flash`、`deepseek-v4-pro`、`grok-4.7`、`grok-4.6`、`gemini-4-argon`、`gemini-3.1-pro`、`gemini-3.8-flash`、`claude-fable-5`、`claude-fable-5-1`、`claude-opus-5-5`、`claude-opus-5`、`claude-sonnet-5-5`、`claude-sonnet-5`、`claude-opus-4-8`、`claude-opus-4-6`、`claude-sonnet-4-6`、`claude-haiku-5-5`、`claude-haiku-4-5-20251001`。
-
-Haiku 5.5 按单次总输入（含缓存）自动采用 ≤100k / >100k 两档价格，详见 [Haiku 5.5 定价](docs/haiku-5-5-pricing.md)。
-
-每个模型发送流式 `say test`。Claude 使用 `/v1/messages` 和 `x-api-key`，两个 Gemini 使用 `/v1beta/models/{model}:streamGenerateContent?alt=sse` 和 `x-goog-api-key`，其他使用 `/v1/responses`。不尝试切换协议或回退模型。Responses 默认延迟记录首个 `response.created`，Claude 记录首个 `message_start`，Gemini 记录首个原生响应事件；tooltip 同时列出首个非思考文本片段的延迟，原生事件不会伪装为 `response.created`。模型匹配使用原生返回的 `model` / `modelVersion`，缺失时不拿请求模型补全。请求 ID 继续用于账单核验。Responses 收到有效文本且 HTTP 200、正常读到 EOF 但缺少 `response.completed` 时，显示“成功，但缺少结束事件”；完成事件存在但 output 为空时，使用已完成的 assistant output item 或文本增量，显示“成功，但结束事件缺少最终文本”。两种情况保存 `availability.status=success` 及 `terminal_status=missing/missing_output`，均可手动勾选，新增接入和批量优化的新增建议默认不选；已有接入保留原选择。明确失败/未完成事件、读取错误、超时、超限和无有效文本仍失败。历史记录不自动改判，须重新检测。正常结束的 Messages、以 STOP 完成的 Gemini 且有可见文本才判可用。缺少结束事件的 Responses 不参与降智成功/失败判定。仅 `gpt-6-astra` 可用性成功后再次发送糖果推理题，回复含 `21` 判不降智，否则判降智；其他模型只发送 `say test`。
-
-后台 PostgreSQL 队列保存同步任务、检测进度、最后结果，网页刷新不影响任务。所有已排队的站点账号可同时同步和检测，不设账号间并发上限；每个账号仍先完成同步，再以最多两个“分组 × 模型”任务并发检测。会话互斥通过短期数据库租约实现，等待上游期间不占用数据库连接；账号租约及任务 ID 阻止重复执行与过期结果覆盖。进程中断的付费请求不会自动重放，标记中断后可手动重试。支持账号、搜索、模型、可用性、降智结果、倍率上限筛选和倍率升降序；倍率选项来自其他筛选后的数据，选择后保留小于等于阈值的渠道。表格每个站点分组只显示一行；全部模型模式隐藏模型列，汇总可用/失败/未检测数量，首字延迟主单元格显示缺失，可展开各模型结果。选择具体模型时显示该模型结果。可用性在全部模型下按“存在匹配模型”筛选分组，降智筛选始终使用分组的 Astra 结果。一键检测覆盖所有匹配页，“检测全部模型”旁的设置弹窗默认勾选全部模型；保存后按控制台用户写入浏览器本地存储，刷新及返回页面保留选择。设置用于模型检测区域的批量和逐渠道检测，包含未检测和此前失败的已勾选模型；具体模型筛选与设置取交集，未勾选时禁用检测。至少保留一个模型，取消不保存草稿。站点账号同步仍自动检测全部支持模型，单独降智检测仍只请求 Astra。按钮明确显示模型范围与渠道数量。新接口为 `/v1/sub2api/accounts`、`/v1/sub2api/accounts/{id}/sync`、`/v1/sub2api/accounts/{id}/stop`、`/v1/sub2api/checks`，仅账户会话可访问。
-
-倍率优先读取专用 key 的 `/v1/sub2api/billing` 有效倍率（包含上游用户专属与高峰规则）。旧版不支持时，只有用户倍率接口成功且未启用高峰倍率才使用分组/专属倍率；不能确定则显示缺失。界面只显示上游数字，不做汇率换算，悬停可见同步时间。
-
-渠道观测与单次检测的默认首字延迟均使用首个 `response.created` 的耗时，tooltip 显示首个 `response.output_text.delta` 的延迟。两个事件分别采集，未采集创建事件的历史、非流式或不包含该事件的请求显示缺失，不以旧首输出值填充。p50 与单次检测延迟使用统一 badge：≤5 秒绿色、>5 秒且≤10 秒黄色、>10 秒红色；缺失值、请求前等待、p95 保持原样。
-
-「添加到渠道」弹窗默认勾选该分组最新检测成功且没有已确认单价异常的模型；异常模型默认不勾选并显示提示，仍可由用户手动选择。选择 uni-api 来源、目标 API key 和从 1 开始的位置。仅允许添加已测可用模型；由后端创建并复用独立 `uni-console-route-*` 业务 key（采用上游默认额度），加密保存并直接传到网关，浏览器不接触凭据。不会把 $1 检测 key 用于生产调用。
-
-目标 uni-api 必须支持 `automatic_engine`、`temporary_channel_import`、完整渠道定义、设置导出及原子恢复能力。添加携带弹窗读取的控制 revision，冲突不自动覆盖。协议优先使用弹窗显式选择，其次是成功检测的协议；旧检测没有协议信息时要求选择，不按模型名猜测。协议仅决定地址：Responses 为 `/v1/responses`，Messages 为 `/v1/messages`，Gemini 为 `/v1beta`，Chat Completions 为 `/v1/chat/completions`；生成定义省略 `engine`，由网关统一识别并显示实际引擎。同站点/分组/目标 Key 在不同端点检测成功的模型原子拆成协议子渠道，沿用业务凭据和原始模型映射；编辑/删除只影响选中的协议渠道。网关原子添加临时 provider 与各模型的优先顺序，严格限定目标 key；其他 key 的 `all` 或嵌套引用不扩大访问。添加到第 1 位即优先尝试，仍遵守现有禁用/冷却/请求限制。重复添加已存在渠道会提示使用编辑，不覆盖其他协议渠道。
-
-来源设置和站点渠道设置提供「预览旧渠道协议修复」。只自动处理可关联到当前用户站点、地址一致且仍为 `gpt` + `/v1/responses` 的旧导入渠道；人工引擎/地址覆盖、未知协议及非站点渠道保持不变。预览不写入，确认以 revision 和计划摘要防止覆盖并发修改。启用「保留临时配置」后才允许应用；应用前将完整前后快照加密保存到独立操作表，使用一次原子恢复保留密钥范围、路由顺序、停用及其他设置。结果不确定时点击「核对修复状态」，不要盲目重试；配置版本未变化时可回滚。本功能不会随代码发布自动迁移生产配置。
-
-搜索框旁的「降智检测」覆盖当前筛选范围内所有分页的可检测渠道，固定每个分组只发送一次 `gpt-6-astra` 糖果数量推理题请求，不发送 `say test`，也不检测其他模型。通过独立的 `/v1/sub2api/quality-checks` 接口加入持久队列，可在账号卡片停止；刷新页面后继续显示进度和结果。此次响应同时更新 Astra 的降智结果、可用性、首字延迟和模型匹配，其他模型结果保持不变。
-
-sub2api 检测的「模型匹配」比较请求模型与成功流式 `response.completed` 对象中的 `response.model`，模型名须完全一致（不合并别名、版本后缀、大小写）。常规检测使用 `say test` 的响应；独立降智检测使用此次降智请求的响应，无额外上游请求。结果记录请求模型、返回模型与判定：匹配、不匹配、未返回、格式无效或无法判定。初始事件及输出文本不作为模型身份，模型匹配也不自动改变路由。全部模型视图汇总数量，展开可看各模型详情；历史记录未采集该字段时显示「待补测」。
-
-站点账号卡片通过独立余额接口读取上游 `/api/v1/auth/me` 的钱包余额，按账号缓存 5 分钟，查询失败保留上次值并标注。它不会触发模型检测；刷新登录会话与分组同步串行处理，避免重复轮换 token。所有余额金额共用颜色：小于 0 沿用负值红色，0 至 50（含边界）黄色，大于 50 绿色；未知金额不按 0 处理。
-
-
-每次 sub2api `say test` 与降智检测均记录独立请求标识，并在 PostgreSQL `console_sub_usage` 中排队查询该账号的 `/api/v1/usage`。账单查询仅匹配测试 Key、分组和精确请求 ID；不使用余额差、时间相邻请求或模型名猜测费用。普通 Key 不用于面板鉴权，复用加密登录会话，401 时通过现有账号租约串行刷新 token。每个账号独立租约、每批最多 32 条同 Key 请求、最多 5 页，单批 20 秒；账单延迟或暂时故障最多查询 6 次并退避，重启后继续免费查询，不重发模型请求，也不占用同站点的两个模型检测 worker。
-
-「回复 / 诊断」详情展示每次请求的实际计费金额、倍率前与实付输入／输出单价、计费倍率、token 和对应账单 ID。单价统一为美元／百万 token，由该条账单的分项费用与对应 token 样本计算；零 token 或缺失字段保持未知，按次或图片计费不冒充 token 单价。若实际金额与总价乘倍率不一致，不推算实付分项单价。独立降智检测与可用性共用一个请求，只生成一条账单核验记录。
-
-模型检测表格新增「单价异常」，按倍率前输入／输出单价与当前已确认的「价格设置」比较，正常分组折扣不触发异常；考虑上游费用字段的十位小数舍入误差。异常下方以 `$5/$30` 的形式显示输入／输出单价。无账单、无参考价格、零 token 或站点不支持查询时明确显示未确认，不能当作正常或免费。老检测结果没有请求关联标识，需要重新检测才能核验账单。
-
-
-渠道观测的「渠道实际消费」通过 uni-api 的独立 `billing` 事实关联 sub2api 账单。网关为每次实际发出的尝试保存响应头 `X-Client-Request-ID`、上游站点、实际使用的 Key 的 SHA-256 指纹及原有来源、调用 Key、渠道、模型、端点、流式和重试维度；不保存明文 Key、请求体或回复体。控制台按登录账号的 Key 索引匹配站点和指纹，随后精确匹配 `/api/v1/usage` 的 `client:<标识>`，累计 `actual_cost`。`/v1/alpha/search` 等已知端点归一为同一站点，查询兼容旧快照中的搜索端点基址，同时保留租户路径前缀。
-
-账单和请求标识缓存在独立 PostgreSQL 中，以账号、业务 Key、日志 ID 去重。同步以站点账号为单位，不带 `api_key_id` 或 `group_id` 过滤，一次分页下载该账号所需时间范围的所有 Key 日志，按日志自带的 Key ID 缓存，再本地批量匹配请求。默认每页 1000 条；站点限制页大小时沿用其返回值，响应超过大小限制或大页被拒绝时回退 100 条并从第一页重扫去重，绝不混用不同页大小的偏移。整页批量写入与游标提交同一事务；每批最多 5 个历史页、每页独立 20 秒，账号之间并行，同账号继续复用账单读取租约、退避与持久断点。不重发模型请求。`GET /v1/channel-spend` 使用统计接口相同的 `[from,to)`，支持来源、调用 Key、模型、端点和流式筛选；有尝试完成事实时使用其完成时间，取消的 hedge 没有完成事实时使用关联记录时间。跨来源/调用 Key 共用同一业务 Key 的账单仍只查询一次，但金额逐请求分别归属；重复响应标识、重复账单、旧请求没有标识或未绑定账号均不冒充完整消费。仅所有尝试均唯一匹配时显示完整金额，未匹配账单不推断为免费。业务 Key 汇总接口继续作为独立参考，不参与渠道利润。 部分匹配时表格显示 `≥$已核对金额` 和已核对数量，完整金额字段仍为空，利润显示由已核对费用推导的上限（≤），不将未知费用视为零。缺少历史事实与账单仍在同步分别表达；即使关闭自动刷新，只要还有可关联的待核对账单仍继续轮询。tooltip 分别列出缺少关联事实、缺少响应标识及 HTTP 状态、账号未绑定、冲突和待核对次数，无记录的渠道显示 `—`。
-
-
-渠道观测的「利润」列按指定数值公式计算：`估算消费 × 对应模型售卖百分比 ÷ 100 × 6.9 − 渠道实际消费`，不对实际消费另做币种换算。第一行显示人民币 `¥金额`，第二行利润率为 `利润 ÷（估算消费 × 对应模型售卖百分比 ÷ 100 × 6.9）`。完整账单的正利润绿色、负利润红色。当前范围已有部分核对费用时，显示 `≤¥金额`、上限标记和 `≤利润率`：按该模型售卖比例计算收入后减去已核对费用，所得为利润上限，实际利润可能更低；正数上限显示黄色，不能当成已确认盈利。核对完成后自动恢复普通利润数值。没有任何已核对费用、缺少估算消费时保持缺失，收入为零时利润率不可计算。业务 Key 总额、按日金额不参与利润，未知请求费用不假设为零。
-
-### 配置文件渠道的站点账号关联
-
-后台读取 uni-api 原始渠道配置，以规范化的站点地址和完整 API key 的 SHA-256 指纹，与当前控制台用户已保存的 sub2api 账号密钥列表精确核对。识别结果、上游 Key ID、分组和创建时间保存在 PostgreSQL；页面刷新和服务重启不会重新扫描站点密钥。来源配置每分钟检查一次；只有站点下的配置 key 集合变化或用户重新同步账号时，才重新读取该账号的密钥列表。失败扫描有重试间隔，完整分页成功后原子替换索引，不保存额外的明文 key，不创建或修改上游 key。
-
-已完整匹配的原始渠道可读取账号余额，复用关联分组的可用模型与降智检测历史，并通过实际发出请求的 Key 指纹参与逐请求账单关联。账号、站点或 Key 匹配不完整/有歧义时不混用数据，抽屉显示关联状态。配置渠道和导入渠道使用相同的精确消费口径。
-
-配置文件渠道保持原名及原有配置，不获得临时渠道的编辑/删除入口；自动关联不修改 uni-api 路由、来源密钥或站点业务密钥。读取上游账单继续复用站点登录会话和现有自动刷新机制。
-
-
-价格设置可为每个模型保存 `sale_percent`（原价的百分比）。GPT 默认 2.5%，Claude / Gemini 默认 15%，其他模型默认 2.5%；支持小数、0% 和高于 100% 的比例。后缀模型沿用最长匹配的基础模型设置。原价估算消费保持原口径，利润和利润率使用该模型的当前售卖比例；保存后会刷新渠道统计。配置与现有价格一起保存至 PostgreSQL，旧价格文档省略此字段时使用默认值；旧客户端省略该字段更新价格时保留已保存比例。
-
-渠道观测的「渠道名＋倍率」使用该上游模型最近已核对检测账单的 `actual_cost / total_cost`，例如公布 0.3、账单实际 3 时显示 `codex5-3`。差异说明只放在渠道管理的倍率列；公布倍率继续保留，实际倍率不同则标注「倍率不一致 · 公布 0.3」。观测页不附加此文案，也不修改网关 provider 标识、路由、价格配置或实际账单。模型映射按上游模型匹配；缺少可用账单、账单原价为零、非 token 计费或多个绑定分组倍率不一致时，观测名称显示未知倍率，不拿其他模型的倍率代替。管理页尚未核对时明确显示「公布 · 待核对」；查看全部模型时可显示已核对倍率范围，筛选和排序取其中最高值。倍率为最近账单样本，详情提示样本时间，不承诺未来请求倍率固定。
-
-渠道管理的倍率筛选支持「倍率不一致」：选定模型时，只保留该模型已核对倍率与公布倍率不同的渠道；查看全部模型时，保留任一模型存在此差异的渠道。尚未核对的倍率不算差异，筛选会随用户偏好保存，并用于优化预览的模型范围。
-
-发布顺序：先更新 analytics-api 消费者以支持 additive `billing` 事实，再更新网关生产者。账单事实不进入请求/尝试/token 汇总；请求事实和增量汇总提交到 PostgreSQL；发布不恢复历史快照。升级前历史缺少上游标识，无法事后精确拆分。
-
-账号级账单同步状态存入 `console_sub_account_spend_cache`，多个 Key/渠道/筛选窗口共用覆盖范围。升级只从旧 Key 游标合并需要同步的时间范围，不能把任一 Key 的完整覆盖当成账号完整覆盖；旧明细及游标表保留以兼容滚动更新。后台 `sub_account_spend_page` 日志记录账号、分页大小、返回行数及完成状态，不记录令牌或请求内容。
-
-账单归属的完整性与下载进度分开表示：`pending_attempts` 表示账单同步尚未覆盖/查询失败的待核对请求；`absent_receipt_attempts` 表示已完成覆盖请求起止时间的账单扫描，但没有找到精确标识的记录。返回这类记录的 HTTP 状态计数和最近完整同步时间，并使用同一个 PostgreSQL repeatable-read 只读事务读取账单与覆盖范围。后者每分钟低频复查，延迟入账后自动恢复；没有账单不能据此认定免费，缺少响应标识也不能因下载完成而当作零。`≥` 只表示已核对费用下界，不承诺等待后一定变为精确总额。
-
-
-余额不足拒绝的费用归属：网关仅增加 `upstream_error_sha256`（已缓冲 HTTP 错误正文的 SHA-256），不改变请求、重试或转发。控制台仅在站点账号/业务 Key 唯一关联、HTTP 403 且指纹严格匹配 sub2api 的鉴权余额检查或模型调用前余额资格检查响应时，将该次请求计为已确认零费用；`confirmed_unbilled_attempts` 与真实账单数分开记录。真实账单优先，未知 403、流内失败、超时、缺失账单、充值后的余额都不能单独作为零费用依据。
-
-旧版事实可通过 `console_billing_error_evidence` 补充从保留网关日志恢复的错误指纹：必须记录来源、事件/请求/尝试/渠道、HTTP 状态、原日志摘要和取证来源，查询时逐项匹配。该表不保存费用或错误正文，也不修改已保存的请求事实。缺少原始证据的历史保持未知。
-
-
-渠道观测先通过 `/v1/analytics` 读取统计，再用返回的 `from/to` 独立读取当前模型的 `/v1/channel-spend`。账单核对慢或失败只影响消费/利润列，不阻断渠道列表、成功率和延迟显示；刷新统计时取消旧账单查询，释放分析执行槽。切换模型复用同一范围的统计，只更新账单筛选。补账继续使用固定时间范围，不把不同截止时间的统计与消费混算；未核对费用保持未知，不能当作零。旧版 `include_spend=true` 合并接口保留兼容。
-
-账号账单超过 5 页时，每轮扫描在第一页后额外读取一页最新账单（最多 1000 条，沿用站点实际分页上限）。每页各有 20 秒读取时限，读取前续期该账号的有效租约；一批最多 5 个历史页，剩余时间不足时保留游标交给下一批，不将整批时间耗尽误报为站点失败。这些记录立即用于逐请求关联；最新页读取不会推进历史覆盖范围或分页游标，失败也不阻断原有完整扫描。完整扫描继续按时间正序恢复，重复记录按账号、上游 Key 和账单 ID 去重，不增加模型调用。`sub_account_spend_page` / `sub_account_spend_recent` 日志记录行数、耗时及结果，失败记录脱敏的错误类别。
-
-消费查询先选筛选范围内的账单候选身份，再关联这些身份的全部完成记录，避免先聚合全站历史；时间筛选仍在关联后执行，跨 Key/来源的重复账单仍全局检测。无法核对的请求返回最多8条 `unresolved_samples`（请求/尝试 ID、端点、HTTP 状态、时间、原因）；上游未提供标识或账单时保持未知，不能将低延迟返回误称为金额完整。
-
-已唯一关联到同一 sub2api 账号与分组的渠道，共享降智检测次数、不降智概率、最新结果及历史列表。原始 `console_quality_history` 检测记录保留；`console_quality_group_links` 按唯一 `check_id` 关联渠道侧记录，`console_quality_group_history` 将两种入口的记录统一读取。同组安装到多个调用 Key 或来源时，每次实际检测只计一次。旧记录首次读取时自动补关联，重复读取不会增加次数；已归属历史不会随渠道后续改绑而移到别组。多分组、部分关联或歧义渠道保持独立统计。
-
-sub2api 的共享降智投影通过独立 `quality_check` 返回，不改写模型可用性、模型匹配和原检测账单；渠道观测返回 `history_scope=account_group`，前端不再重复叠加分组次数。手动检测结束立即刷新两页所需缓存，后台检测结果由15秒轮询同步；失败、取消不增加成功检测分母。所有共享查询按登录账号隔离，不扫描上游密钥、不新增检测请求。
-
-新增接入前，弹窗通过本地账号任务状态接口核对是否可提交；同步、检测或另一次添加进行中时保留全部选择并显示具体任务，每 5 秒只读核对一次，结束后自动恢复添加按钮。状态读取失败可原地重试。后端仍使用账号租约串行创建业务 key，区分账号不存在、任务繁忙与数据库错误；检查与提交之间发生的新任务仍由原子认领拒绝，不停止任务或自动提交路由。已有接入的编辑与移除不受此新增接入门槛限制。
-
-添加渠道遇到站点会话失效时，可在原弹窗点击“重新登录站点”。此流程只更新该账号的加密会话，不触发同步或付费检测，并保留当前模型勾选、重命名、来源/API key 与路由位置；登录完成后继续提交即可。上游拒绝旧刷新令牌时，后台使用已保存密码自动登录；需要二次验证或人机验证时仍需用户完成验证。重新登录弹窗默认显示账号，并通过专用的 `GET /v1/sub2api/accounts/{id}/credentials` 接口读取、明文回填已保存密码；此接口校验登录会话与账号归属，响应禁止缓存。留空可复用服务端密码，填写新密码可更新。浏览器登录助手返回会话时同时提交本次输入的密码，经服务端核验身份后加密保存。历史上只保存会话的账号需补填一次密码，不能从旧令牌还原密码；列表会明确提示。账号列表不包含密码，弹窗中的密码不写入浏览器持久存储。
-
-### 自动识别 new-api 站点
-
-New API 的账单明细与退款检查共用站点级读取节奏：按站点源地址在数据库中预约，相邻日志请求至少间隔 2 秒，跨账号及滚动发布实例共享；手动渠道管理不排在账单队列后。账单 HTTP 429 保留当前分页并至少退避 3 分钟，尊重更长的 `Retry-After`。分组/密钥等安全读取遇到 429 时，在原请求时限内按 `Retry-After`（缺失时 10 秒）至多重试一次；创建、更新和删除不自动重放。日志只记录账号标识、操作类别、状态和重试等待，不记录凭据、查询参数或上游正文。已保存的专用密钥仅在站点最新元数据的账号、分组、令牌 ID 和专用名称均匹配时复用，停用/过期仍按站点状态判断，避免每次同步重复触发敏感接口限流。
-
-添加站点账号只填写地址、用户名/邮箱和密码，无需选择站点类型。后台先以无凭据请求识别站点，随后使用对应管理协议。new-api 支持用户名登录、RSA-OAEP/AES-GCM 登录加密、新版访问令牌与刷新 Cookie、旧版会话 Cookie，以及可用的六位 2FA 验证。密码和会话凭据在服务端加密保存，按账号互斥刷新或重新登录；兼容只返回会话 Cookie 的旧版登录，保留账号身份与额度换算单位。要求 Passkey 或浏览器人机验证的 new-api 站点会明确报错，当前浏览器登录助手仍只支持 sub2api，不冒充已接入。
-
-new-api 仅同步当前账号有权限的分组，用持久映射保留字符串分组 ID；站点内部管理员渠道不在普通账号接入范围。按账号/分组分别创建和复用专用测试 key、业务 key，创建显式设置不限额、不跨组重试。创建前先查同名记录，持久化创建意图；超时或响应不明时重新查找，无法确认时不再次创建。已停用或过期的 key 不自动恢复。创建返回的掩码不用于请求，完整 key 从专用读取接口取得并加密存储。
-
-专用 key 核对使用 `/api/token/` 分页列表，在本地按名称匹配，再读取匹配 key 的完整值；不使用有独立低频限流、且默认精确匹配的 `/api/token/search`。分页按原始令牌 ID 检查进度，不能因某页没有匹配记录而提前结束；列表失败或分页重复时停止创建，保留原有防重复创建记录。
-
-检测、模型设置、逐模型 Tool use、远程压缩、降智、筛选、重命名、路由排序、跨来源批量操作均复用渠道管理。站点目录的额外模型进入模型设置；显式新增到路由仍要求检测可用，编辑时的手动扩展沿用已有规则。
-
-余额与消费按站点 `quota_per_unit` 换算；账单用 `newapi:` 请求标识、账号和业务 key 精确关联，数字展示 ID 不参与去重。按稳定请求/事件/令牌组合分配持久账单 ID。支持普通 ratio 和有明确命中档位/条件倍率证据的文本线性表达式，且核对实际扣费；其他复杂表达式保留实际消费，单价不作猜测。订阅额度不当作钱包成本，存在无法关联的退款时不宣布净消费完整。扫描使用固定时间范围；网关采集的两类请求标识由账号站点类型隔离匹配。旧网关未记录 `X-Oneapi-Request-Id` 的历史请求不能补造利润。
-
-已关联站点账号的 New API 导入渠道，若余额查询确认 `/v1/usage` 不存在（404/405），渠道观测会复用与站点账号页面相同的钱包余额，详情标注「站点账号余额」。Key 配额、订阅、鉴权失败和网络错误保留原结果；不按域名猜测账号，也不将未知余额当作零。详见 [New API 渠道余额](docs/newapi-channel-balances.md)。
-
-可选真实验证：`TEST_NEWAPI_CREDENTIALS` 指向仓库外的 JSON（`Base`、`Username`、`Password`），配合 `TEST_CONTROL_DATABASE_URL` 运行 `TestNewAPILiveAdapter`。该测试发起 4 次付费探针，验证专用 key 隔离、刷新及账单关联，退出时仅删除本次创建的 key 并撤销测试会话。默认测试不会访问真实站点。
-
-### Collection sizes and resource budgets
-
-Channel/rule counts, per-batch targets/models, account groups, key page counts,
-price model counts, automation fact counts, and checkpoint total sizes have no
-fixed application quota. API key indexing and probe receipt matching persist
-page progress, publish complete generations atomically, and continue on later
-worker passes. Missing receipts remain pending with backoff; invalid or
-unsupported upstream responses remain visible errors. Worker concurrency,
-lease fencing, authentication, field validation, and network deadlines remain.
-
-Authenticated configuration requests and gateway configuration responses use
-`CONFIGURATION_MAX_BYTES` (bytes; unset/0 means no application byte quota).
-The gateway uses `RUST_ADMIN_CONFIG_MAX_BYTES` for both mutations and startup
-restoration, also unset/0 by default. Nginx no longer imposes a separate 16 MiB
-configuration quota. Login retains its 32 KiB budget. The gateway's general
-transport/decompression budget (`REQUEST_MAX_BODY_BYTES`, default 128 MiB) is
-independent and still applies; operators can adjust it to their resources.
-
-Automation aggregates fully covered retained windows in PostgreSQL;
-latency quantiles retain the exact order-statistic definition. Checkpoints and
-price uploads stage on disk and preserve checksum/schema/ETag validation and
-last-known-good state on failure. Available disk, provider object-upload limits,
-HTTP deadlines and deployment resources still apply; removing a count quota
-is not a guarantee of unlimited capacity or completion within one request.
-
-
-除 Haiku 5.5 自动按 100k 分档外，价格设置每行提供“超过272k加价”开关，默认关闭，随该行价格独立保存。开启后按单次请求的总输入 token（包括缓存）严格大于 272,000 判断，对该请求全部普通输入、缓存读取、5 分钟及 1 小时缓存写入分别按各自单价 ×2、全部输出按输出单价 ×1.5 估算；关闭写入计费时仍不计缓存写入费用。后缀模型继承基础模型设置。估算消费及由其计算的利润使用当前设置，适用于已有历史记录；上游实际消费仍使用账单。 映射模型按历史请求中记录的 `upstream_model` 选择单价、售卖比例、缓存写入和长上下文开关（如对外 `gpt-5.4` 实际调用 `gpt-5.5`，使用 `gpt-5.5` 定价）。旧记录未保存上游模型时才回退到对外请求名；已知上游无已确认价格时不借用别名价格。渠道统计返回 `pricing_model` 标明计价模型，当前路由修改不会重写历史模型归属。判断读取过滤范围内的逐请求 token，不使用窗口汇总输入量，多个短请求不会被误加价。设置独立持久化至 PostgreSQL，旧价格文档默认关闭，旧客户端省略字段时保留已有选择。
-
-请求追踪页按尝试 ID 合并派发、尝试结果和账单事件，提供共享时间轴上的耗时条、最终状态概览与逐次尝试卡片；并发条保留重叠关系，不把它们的耗时相加。缺少入口事件时明确使用首条记录作为相对起点；未记录开始时间或最终结果时保持未知。重复请求 ID 不合并为单次重试链。渠道显示当前所属站点与倍率、分组名称，点击名称或时间条打开阶段详情抽屉，并可打开原站控制台。内部渠道、请求和尝试 ID 保留在展开详情中。名称只用当前用户的本地账号分组、来源绑定及历史请求 Key 指纹精确关联，不向网关或站点发起探测；无法关联时显示未关联渠道，不猜测名称或历史计费倍率。
-
-
-### 2026-10-02：Chat 协议转换计时修复
-
-uni-api 的 Responses→Chat 预读阶段曾过滤 `response.created` 却未保留其时间，并在进入转换器时重启计时，导致渠道观测缺少首字样本、部分正文首字接近零。网关现在从上游 HTTP send 前统一计时，预读事件的观测时间独立于转发过滤保存，后续转换不重置。此修复不改变客户端 SSE、重试或超时语义。旧历史缺少的事件和低估的时间不能可靠反推；控制台在无创建时间样本时明确显示「未记录」，不使用总耗时或旧正文时间填充。新请求采集后自动进入现有统计和排序。
+The analysis tests need a reachable PostgreSQL; anything without
+`TEST_CONTROL_DATABASE_URL` skips or fails on ingestion and spend cases. The
+gateway tests need no external service.
+
+Once the stack is running, `docker/smoke-test.sh http://localhost:8000 <api-key>`
+probes every route and reports which path is misrouted.
+
+`.github/workflows/check.yml` runs the console suite, the nginx upstream
+splitters and the analysis service tests (against a PostgreSQL service
+container) on push and pull requests. Dependencies are pinned through
+`package-lock.json`, `Cargo.lock` and `analytics-api/go.sum`.

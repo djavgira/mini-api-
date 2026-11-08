@@ -5,10 +5,10 @@
 !Cargo.lock
 !.cargo/
 !.cargo/config.toml
-!src/
-!src/**
+!gateway-src/
+!gateway-src/**
 !assets/
 !assets/**
-!README.md
+!GATEWAY.md
 !Dockerfile
 !.dockerignore

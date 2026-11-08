@@ -9,7 +9,7 @@
   </a>
 </p>
 
-[英文](./README.md) | [中文](./README_CN.md)
+[英文](./GATEWAY.md) | [中文](./GATEWAY_CN.md)
 
 ## 介绍
 
@@ -527,7 +527,14 @@ UNI_API_CONFIG_PATH=/path/to/api.yaml DISABLE_DATABASE=true PORT=8000 ./target/d
 
 ## Docker 本地部署
 
-Start the container
+本文档只描述网关本身。仓库组装出的镜像把网关、控制台和分析服务放在同一个
+nginx 之后，由 [README.md](./README.md) 描述，构建命令为
+`docker build -f docker/Dockerfile.merged -t uni-api:local .`。
+
+只包含网关的镜像只运行 Rust `uni-api-front`，构建命令为
+`docker build -f Dockerfile.gateway -t uni-api-gateway:local .`。
+
+启动容器
 
 ```bash
 docker run --user root -p 8001:8000 --name uni-api -dit \

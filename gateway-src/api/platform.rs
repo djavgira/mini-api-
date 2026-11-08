@@ -228,7 +228,7 @@ pub async fn handle(
         (&Method::GET, "/docs/markdown") => Some(text_response(
             StatusCode::OK,
             "text/markdown; charset=utf-8",
-            include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/README.md")),
+            include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/GATEWAY.md")),
         )),
         (&Method::GET, "/docs") | (&Method::GET, "/redoc") => Some(text_response(
             StatusCode::OK,

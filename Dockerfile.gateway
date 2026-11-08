@@ -2,14 +2,14 @@ FROM lukemathwalker/cargo-chef:0.1.71-rust-1.84-bullseye@sha256:e372d5aae4166598
 WORKDIR /workspace
 COPY Cargo.toml Cargo.lock ./
 COPY .cargo ./.cargo
-RUN mkdir -p src && printf 'fn main() {}\n' > src/main.rs && touch src/lib.rs && cargo chef prepare --recipe-path recipe.json
+RUN mkdir -p gateway-src && printf 'fn main() {}\n' > gateway-src/main.rs && touch gateway-src/lib.rs && cargo chef prepare --recipe-path recipe.json
 FROM chef AS planner
 RUN cargo chef cook --release --locked --recipe-path recipe.json
 FROM planner AS builder
 COPY Cargo.toml Cargo.lock ./
-COPY README.md ./README.md
+COPY GATEWAY.md ./GATEWAY.md
 COPY assets ./assets
-COPY src ./src
+COPY gateway-src ./gateway-src
 RUN cargo build --release --locked && cp target/release/uni-api-front /tmp/uni-api-front
 FROM debian:bookworm-slim
 ARG SOURCE_COMMIT=unknown

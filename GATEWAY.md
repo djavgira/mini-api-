@@ -9,7 +9,7 @@
   </a>
 </p>
 
-[English](./README.md) | [Chinese](./README_CN.md)
+[English](./GATEWAY.md) | [Chinese](./GATEWAY_CN.md)
 
 ## Introduction
 
@@ -550,8 +550,13 @@ not establish FreeBSD deployment support; use the Docker build below for Linux.
 
 ## Docker local deployment
 
-The default image runs the complete API as the Rust `uni-api-front` binary.
-Build it from the repository root with `docker build -t uni-api:local .`.
+This document describes the gateway alone. The repository's composed image —
+gateway, console and analysis service behind one nginx — is what
+[README.md](./README.md) deploys; build it with
+`docker build -f docker/Dockerfile.merged -t uni-api:local .`.
+
+A gateway-only image runs just the Rust `uni-api-front` binary. Build it with
+`docker build -f Dockerfile.gateway -t uni-api-gateway:local .`.
 
 Start the container
 
