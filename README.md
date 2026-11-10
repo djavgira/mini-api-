@@ -34,6 +34,7 @@ services:
 ```
 
 镜像由 `main` 分支的每次推送自动构建并发布，架构为 `linux/amd64`。
+arm64 机器（含 Apple Silicon）请加 `--platform linux/amd64` 运行。
 
 ## 端口与路由
 

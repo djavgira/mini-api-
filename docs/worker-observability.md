@@ -1,7 +1,6 @@
 # Runtime observability
 
-The previous Python worker document is retained in [the archive](archive/worker-observability.md).
-It describes a historical implementation, including Uvicorn and Python stack sampling.
+This document describes the current Rust implementation only. Python worker stack sampling no longer applies.
 
 The Rust implementation is organized under `gateway-src/observability/` and `gateway-src/storage/`.
 Runtime resource and idempotency diagnostics are assembled in `gateway-src/runtime/context.rs`
