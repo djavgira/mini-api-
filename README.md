@@ -187,6 +187,7 @@ PostgreSQL 中，Cookie 为 HttpOnly + SameSite=Strict，前端不保存来源�
 | `docker/` | 镜像构建、nginx 站点模板、入口脚本、进程监管、冒烟脚本 |
 | `docker-compose.yml` | 部署编排 |
 | `docs/` | 设计与存储说明 |
+| `LICENSE`、`NOTICE` | 许可与上游署名 |
 | `GATEWAY.md`、`GATEWAY_CN.md` | 网关配置参考 |
 
 ## 镜像发布
