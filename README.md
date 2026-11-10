@@ -14,6 +14,22 @@ nginx 对外提供控制台页面，并把模型请求转发给同容器内的�
 
 ## 快速开始
 
+只需要部署目录 `deploy/`，它自带编排文件、`.env.example` 与 `api.example.yaml`，
+不需要仓库其余部分：
+
+```sh
+git clone --filter=blob:none --sparse https://github.com/djavgira/mini-api-.git
+cd mini-api-
+git sparse-checkout set deploy
+cd deploy
+cp .env.example .env          # 填入四项必填密钥
+cp api.example.yaml api.yaml  # 填入 provider 与调用密钥
+docker compose up -d
+```
+
+`deploy/` 拉取已发布的镜像，不构建任何东西；详见 `deploy/README.md`。
+在已 clone 的完整仓库里要自行构建镜像，用仓库根目录的编排文件：
+
 ```sh
 cp .env.example .env          # 填入四项必填密钥
 cp api.example.yaml api.yaml  # 填入 provider 与调用密钥
@@ -25,16 +41,9 @@ docker compose up -d --build
 
 `api.yaml` 与 `.env` 含凭据，已在 `.gitignore` 中排除，请勿提交。
 
-不自行构建时，把 `docker-compose.yml` 里的 `build:` 换成已发布的镜像：
-
-```yaml
-services:
-  uni-api:
-    image: painwind/mini-api:latest
-```
-
-镜像由 `main` 分支的每次推送自动构建并发布，架构为 `linux/amd64`。
-arm64 机器（含 Apple Silicon）请加 `--platform linux/amd64` 运行。
+镜像由 `main` 分支的每次推送自动构建并发布到 `painwind/mini-api`，架构为
+`linux/amd64`。只想用镜像而不构建，直接用 `deploy/`；arm64 机器（含 Apple Silicon）
+请加 `--platform linux/amd64` 运行。
 
 ## 端口与路由
 
@@ -185,7 +194,8 @@ PostgreSQL 中，Cookie 为 HttpOnly + SameSite=Strict，前端不保存来源�
 | `analytics-api/` | 控制台后端与渠道分析（Go） |
 | `gateway-src/`、`assets/` | Rust 网关 |
 | `docker/` | 镜像构建、nginx 站点模板、入口脚本、进程监管、冒烟脚本 |
-| `docker-compose.yml` | 部署编排 |
+| `docker-compose.yml` | 从源码构建的部署编排 |
+| `deploy/` | 仅用镜像的快速部署目录（自带编排、`.env.example`、`api.example.yaml`） |
 | `docs/` | 设计与存储说明 |
 | `LICENSE`、`NOTICE` | 许可与上游署名 |
 | `GATEWAY.md`、`GATEWAY_CN.md` | 网关配置参考 |

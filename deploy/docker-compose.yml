@@ -1,0 +1,90 @@
+# Combined uni-api deployment from the published image: one container, one
+# published port, one database.
+#
+#   cp .env.example .env          # then fill in the four required secrets
+#   cp api.example.yaml api.yaml  # then add your providers and api keys
+#   docker compose up -d
+#
+# This file needs nothing but itself: it pulls the image instead of building
+# it, so the directory can be copied or sparse-checked out on its own.
+#
+# nginx owns port 8000 and is the only published surface. The gateway runs on
+# the loopback interface at 8001 and the analysis service at 8080, so neither
+# can be reached from outside the container.
+
+services:
+  uni-api:
+    image: ${UNI_API_IMAGE:-painwind/mini-api:latest}
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    ports:
+      - "${UNI_API_PORT:-8000}:8000"
+    environment:
+      TZ: ${ANALYTICS_TIMEZONE:-Asia/Shanghai}
+
+      # --- gateway ---------------------------------------------------------
+      UNI_API_CONFIG_PATH: /home/api.yaml
+      # Shared postgres so gateway statistics line up with console aggregates.
+      DB_TYPE: postgres
+      DB_HOST: postgres
+      DB_PORT: "5432"
+      DB_USER: uni-api
+      DB_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+      DB_NAME: uni-api
+      # Runtime facts are pushed to the analysis service inside this container,
+      # bypassing nginx so a restart of nginx cannot stall the exporter. The
+      # token must be the source's gateway api key (the console authenticates
+      # the exporter against the stored per-source credential), so it has to
+      # match the key the entrypoint registers for this source.
+      FACTS_INGEST_URL: http://127.0.0.1:8080/v1/runtime-facts/primary
+      FACTS_INGEST_TOKEN: ${GATEWAY_ADMIN_KEY:?set GATEWAY_ADMIN_KEY in .env to an api key from api.yaml}
+
+      # --- console analysis service ---------------------------------------
+      LISTEN_ADDR: 127.0.0.1:8080
+      UNI_API_URL: http://127.0.0.1:8001
+      SOURCE_ID: primary
+      ANALYTICS_TIMEZONE: ${ANALYTICS_TIMEZONE:-Asia/Shanghai}
+      CONTROL_DATABASE_URL: postgres://uni-api:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}@postgres:5432/uni-api?sslmode=disable
+      CONTROL_MASTER_KEY: ${CONTROL_MASTER_KEY:?set CONTROL_MASTER_KEY in .env}
+      ADMIN_USERNAME: ${ADMIN_USERNAME:-admin}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:?set ADMIN_PASSWORD in .env}
+      PUBLIC_ORIGIN: ${PUBLIC_ORIGIN:-http://127.0.0.1:8000}
+      # Served over plain HTTP on a LAN, so session cookies must not be Secure.
+      INSECURE_COOKIE: ${INSECURE_COOKIE:-true}
+    volumes:
+      - ./api.yaml:/home/api.yaml:ro
+      - uni-api-data:/home/data
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "-o", "/dev/null", "http://127.0.0.1:8000/healthz"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+    logging:
+      driver: json-file
+      options:
+        max-size: "20m"
+        max-file: "3"
+
+  postgres:
+    image: postgres:16-bookworm
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: uni-api
+      POSTGRES_USER: uni-api
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+      TZ: ${ANALYTICS_TIMEZONE:-Asia/Shanghai}
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U uni-api -d uni-api"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+
+volumes:
+  postgres-data:
+  uni-api-data:

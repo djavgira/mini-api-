@@ -11,6 +11,7 @@ coverage/
 
 # Runtime configuration holds provider credentials; only the example is tracked.
 /api.yaml
+/deploy/api.yaml
 
 # Rust gateway build output
 /target/
