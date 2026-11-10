@@ -4,7 +4,7 @@ const { spawnSync } = require('node:child_process');
 const { resolve } = require('node:path');
 
 function parse(url) {
-  return spawnSync('sh', ['-c', '. "$1"; printf "%s\\n%s\\n%s\\n" "$ANALYTICS_UPSTREAM_SCHEME" "$ANALYTICS_UPSTREAM_ADDRESS" "$ANALYTICS_UPSTREAM_PATH"', 'test', resolve(__dirname, '15-analytics-upstream.envsh')], {
+  return spawnSync('sh', ['-c', '. "$1"; printf "%s\\n%s\\n%s\\n" "$ANALYTICS_UPSTREAM_SCHEME" "$ANALYTICS_UPSTREAM_ADDRESS" "$ANALYTICS_UPSTREAM_PATH"', 'test', resolve(__dirname, '..', 'docker', '15-upstreams.envsh')], {
     env: { ...process.env, ANALYTICS_UPSTREAM: url }, encoding: 'utf8',
   });
 }

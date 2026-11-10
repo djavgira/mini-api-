@@ -1,14 +1,5 @@
 # uni-api
 
-<p align="center">
-  <a href="https://t.me/uni_api">
-    <img src="https://img.shields.io/badge/Join Telegram Group-blue?&logo=telegram">
-  </a>
-   <a href="https://hub.docker.com/repository/docker/yym68686/uni-api">
-    <img src="https://img.shields.io/docker/pulls/yym68686/uni-api?color=blue" alt="docker pull">
-  </a>
-</p>
-
 [英文](./GATEWAY.md) | [中文](./GATEWAY_CN.md)
 
 ## 介绍
@@ -42,10 +33,6 @@
 2. 第二种就是挂载名为 `api.yaml` 的配置文件到容器内。
 
 ### 方法一：挂载 `api.yaml` 配置文件启动 uni-api
-
-一键部署：
-
-[![Deploy to Fugue](https://api.fugue.pro/button.svg?v=a37d3d9)](https://fugue.pro/new/repository?repository-url=https%3A%2F%2Fgithub.com%2Fyym68686%2Funi-api)
 
 必须事先填写完成配置文件才能启动 `uni-api`，必须使用名为 `api.yaml` 的配置文件才能启动 `uni-api`，可以配置多个模型，每个模型可以配置多个后端服务，支持负载均衡。下面是最小可运行的 `api.yaml` 配置文件的示例：
 
@@ -318,7 +305,7 @@ preferences: # 全局配置
 ```bash
 docker run --user root -p 8001:8000 --name uni-api -dit \
 -v ./api.yaml:/home/api.yaml \
-yym68686/uni-api:latest
+uni-api-gateway:local
 ```
 
 ### 方法二：使用 `CONFIG_URL` 环境变量启动 uni-api
@@ -328,7 +315,7 @@ yym68686/uni-api:latest
 ```bash
 docker run --user root -p 8001:8000 --name uni-api -dit \
 -e CONFIG_URL=http://file_url/api.yaml \
-yym68686/uni-api:latest
+uni-api-gateway:local
 ```
 
 ### Codex（`/v1/responses` + `engine: codex`）
@@ -488,43 +475,6 @@ CLI 的 `--limit-concurrency` 在非 legacy 模式也会被拒绝，避免旧部
 - DB_PORT: 数据库端口，默认为 5432，选填。
 - DB_NAME: 数据库名称，默为 postgres，选填。
 
-## Koyeb 远程部署
-
-点击下面的按钮可以自动使用构建好的 uni-api docker 镜像一键部署：
-
-[![Deploy to Koyeb](https://www.koyeb.com/static/images/deploy/button.svg)](https://app.koyeb.com/deploy?name=uni-api&type=docker&image=docker.io%2Fyym68686%2Funi-api%3Alatest&instance_type=free&regions=was&instances_min=0&env%5BCONFIG_URL%5D=)
-
-让 Koyeb 读取配置文件有两种方法，选一种即可：
-
-1. 填写环境变量 `CONFIG_URL` 为配置文件的直链
-
-2. 直接粘贴 api.yaml 文件内容，如果直接把 api.yaml 文件内容粘贴到 Koyeb 环境变量设置的 file 里面，其中粘贴到文本框后，在下方 path 输入 api.yaml 路径为 `/home/api.yaml`。
-
-最后点击 Deploy 部署按钮。
-
-## 本地开发与构建
-
-当前服务是仓库根目录的 Rust 单 crate，运行二进制仍叫 `uni-api-front`。
-目录职责及配置边界见 [架构说明](docs/architecture.md)。
-
-```bash
-cargo build --locked
-cargo fmt --check
-cargo clippy --locked --all-targets -- -D warnings
-cargo test --locked
-python3 scripts/verify-http.py
-```
-
-运行时通过 `UNI_API_CONFIG_PATH` 指定外部配置文件，或使用 `CONFIG_URL`；
-`PORT` 设置监听端口。生产配置和凭据不属于镜像构建输入。
-
-```bash
-UNI_API_CONFIG_PATH=/path/to/api.yaml DISABLE_DATABASE=true PORT=8000 ./target/debug/uni-api-front
-```
-
-原 Python/Serv00 安装步骤已不适用于当前 Rust 服务。此处构建命令不代表
-已经验证 FreeBSD 部署；Linux 容器以以下 Docker 构建为准。
-
 ## Docker 本地部署
 
 本文档只描述网关本身。仓库组装出的镜像把网关、控制台和分析服务放在同一个
@@ -541,16 +491,16 @@ docker run --user root -p 8001:8000 --name uni-api -dit \
 -e CONFIG_URL=http://file_url/api.yaml \ # 如果已经挂载了本地配置文件，不需要设置 CONFIG_URL
 -v ./api.yaml:/home/api.yaml \ # 如果已经设置 CONFIG_URL，不需要挂载配置文件
 -v ./uniapi_db:/home/data \ # 如果不想保存统计数据，不需要挂载该文件夹
-yym68686/uni-api:latest
+uni-api-gateway:local
 ```
 
-Or if you want to use Docker Compose, here is a docker-compose.yml example:
+或者使用 Docker Compose，下面是一个 docker-compose.yml 示例：
 
 ```yaml
 services:
   uni-api:
     container_name: uni-api
-    image: yym68686/uni-api:latest
+    image: uni-api-gateway:local
     environment:
       - CONFIG_URL=http://file_url/api.yaml # 如果已经挂载了本地配置文件，不需要设置 CONFIG_URL
     ports:
@@ -562,124 +512,20 @@ services:
 
 CONFIG_URL 就是可以自动下载远程的配置文件。比如你在某个平台不方便修改配置文件，可以把配置文件传到某个托管服务，可以提供直链给 uni-api 下载，CONFIG_URL 就是这个直链。如果使用本地挂载的配置文件，不需要设置 CONFIG_URL。CONFIG_URL 是在不方便挂载配置文件的情况下使用。
 
-### api.yaml 热重启（最小修改）+ 前端同步读取
-
-`uni-api` 默认启动时读取一次 `api.yaml`。如果你希望“在前端修改 api.yaml 后，uni-api 立即生效”，最小修改的做法是：
-
-- `api.yaml` 同时挂载给后端 `uni-api` 和前端（`uni-api-status`）
-- 额外加一个 `config-watcher` 监听 `api.yaml` 变更，并自动 `docker restart uni-api`
-
-下面是一个可直接使用的 `docker-compose.yml` 示例（把 `./api.yaml` 放在同目录）：
-
-```yaml
-services:
-  uni-api:
-    image: yym68686/uni-api:latest
-    container_name: uni-api
-    restart: unless-stopped
-    ports:
-      - "8001:8000"
-    environment:
-      - WATCHFILES_FORCE_POLLING=true
-    volumes:
-      - ./api.yaml:/home/api.yaml
-      - ./uniapi_db:/home/data
-
-  uniapi-frontend:
-    image: ghcr.io/melosbot/uni-api-status:latest
-    container_name: uni-api-frontend
-    restart: unless-stopped
-    ports:
-      - "3700:3000"
-    environment:
-      - NODE_ENV=production
-      - PORT=3000
-      - API_YAML_PATH=/app/config/api.yaml
-      - STATS_DB_PATH=/app/data/stats.db
-    volumes:
-      - ./api.yaml:/app/config/api.yaml
-      - ./uniapi_db:/app/data:ro
-    depends_on:
-      - uni-api
-
-  config-watcher:
-    image: alpine:latest
-    container_name: uni-api-config-watcher
-    restart: unless-stopped
-    volumes:
-      - ./api.yaml:/watch/api.yaml:ro
-      - /var/run/docker.sock:/var/run/docker.sock
-    command: >
-      sh -c "
-      apk add --no-cache inotify-tools docker-cli &&
-      while true; do
-        inotifywait -e modify,close_write /watch/api.yaml &&
-        echo 'api.yaml changed, restarting uni-api...' &&
-        docker restart uni-api
-      done
-      "
-```
-
-注意：`config-watcher` 通过挂载 `/var/run/docker.sock` 来重启容器，仅建议在可信机器/环境中使用。
-
-如需用域名同时访问前端和 API，可用 Caddy 反代（`Caddyfile` 示例）：
-
-```caddyfile
-yourdomain.com {
-  encode gzip
-  tls a@bc.com
-
-  route /v1* {
-    reverse_proxy localhost:8001 {
-      header_up Host {host}
-      header_up X-Real-IP {remote}
-    }
-  }
-
-  route * {
-    reverse_proxy localhost:3700 {
-      header_up Host {host}
-      header_up X-Real-IP {remote}
-    }
-  }
-}
-```
-
-这样就可以通过 `yourdomain.com` 在前端修改 `api.yaml`，保存后会触发重启 `uni-api`，随后 `uni-api` 会读取最新配置。
-
-Run Docker Compose container in the background
+后台启动容器
 
 ```bash
-docker-compose pull
-docker-compose up -d
+docker compose up -d
 ```
 
-Docker build
+`api.yaml` 只在启动时读取。控制台通过平台 API 修改渠道状态，因此更换 provider
+或密钥需要编辑 `api.yaml` 后重启容器：
 
 ```bash
-docker buildx build --platform linux/amd64,linux/arm64 -t yym68686/uni-api:latest --push .
-docker pull yym68686/uni-api:latest
-
-# test image
-docker buildx build --platform linux/amd64,linux/arm64 -t yym68686/uni-api:test -f Dockerfile.debug --push .
-docker pull yym68686/uni-api:test
+docker compose restart uni-api
 ```
 
-One-Click Restart Docker Image
-
-```bash
-set -eu
-docker pull yym68686/uni-api:latest
-docker rm -f uni-api
-docker run --user root -p 8001:8000 -dit --name uni-api \
--e CONFIG_URL=http://file_url/api.yaml \
--v ./api.yaml:/home/api.yaml \
--v ./uniapi_db:/home/data \
-yym68686/uni-api:latest
-docker logs -f uni-api
-```
-
-RESTful curl test
+RESTful curl 测试
 
 ```bash
 curl -X POST http://127.0.0.1:8000/v1/chat/completions \
@@ -745,230 +591,6 @@ curl -X POST 'https://xxx.xxx/v1/chat/completions' \
   ]
 }'
 ```
-
-Rust 发布二进制由 Docker/Rust CI workflow 构建。
-
-## HuggingFace Space 远程部署
-
-WARN: 请注意远程部署的密钥泄露风险，请勿滥用服务以避免封号
-Space 仓库需要提供三个文件  `Dockerfile`、`README.md`、`entrypoint.sh`
-运行程序还需要 api.yaml（我以全量放在机密中为例，也可以HTTP下载的方式实现），访问匹配、模型和渠道配置等均在配置文件中
-操作步骤
-1. 访问 https://huggingface.co/new-space 新建一个sapce，要public库，开源协议/名字/描述等随便
-2. 访问你的space的file，URL是 https://huggingface.co/spaces/your-name/your-space-name/tree/main,把下面三个文件上传（`Dockerfile`、`README.md`、`entrypoint.sh`）
-3. 访问你的space的setting，URL是 https://huggingface.co/spaces/your-name/your-space-name/settings 找到 Secrets 新建机密 `API_YAML_CONTENT`（注意大写），把你的api.yaml在本地写好后直接复制进去，UTF-8编码
-4. 继续在设置中，找到 Factory rebuild 让它重新构建，如果你修改机密或者文件或者手动重启Sapce等情况均有可能导致卡住无log，此时就用这个方法解决
-5. 在设置最右上角有三个点的按钮，找到 Embed this Space 获取Space的公网链接，格式 https://(your-name)-(your-space-name).hf.space 去掉括号
-
-相关的文件代码如下
-```Dockerfile
-# Dockerfile,记得删除本行
-# 使用uni-api官方镜像
-FROM yym68686/uni-api:latest
-
-# 创建数据目录并设置权限
-RUN mkdir -p /data && chown -R 1000:1000 /data
-
-# 设置用户和工作目录
-RUN useradd -m -u 1000 user
-USER user
-ENV HOME=/home/user \
-    PATH=/home/user/.local/bin:$PATH \
-    DISABLE_DATABASE=true
-
-# 复制入口点脚本
-COPY --chown=user entrypoint.sh /home/user/entrypoint.sh
-RUN chmod +x /home/user/entrypoint.sh
-
-# 确保/home目录可写（这很重要！）
-USER root
-RUN chmod 777 /home
-USER user
-
-# 设置工作目录
-WORKDIR /home/user
-
-# 入口点
-ENTRYPOINT ["/home/user/entrypoint.sh"]
-```
-
-```markdown
-# README.md,覆盖掉默认的,记得删除本行
----
-title: Uni API
-emoji: 🌍
-colorFrom: gray
-colorTo: yellow
-sdk: docker
-app_port: 8000
-pinned: false
-license: gpl-3.0
----
-```
-```shell
-# entrypoint.sh,记得删除本行
-#!/bin/sh
-set -e
-CONFIG_FILE_PATH="/home/api.yaml"  # 注意这里改成/home/api.yaml
-
-echo "DEBUG: Entrypoint script started."
-
-# 检查Secret是否存在
-if [ -z "$API_YAML_CONTENT" ]; then
-  echo "ERROR: Secret 'API_YAML_CONTENT' is不存在或为空。退出。"
-  exit 1
-else
-  echo "DEBUG: API_YAML_CONTENT secret found. Preparing to write..."
-  printf '%s\n' "$API_YAML_CONTENT" > "$CONFIG_FILE_PATH"
-  echo "DEBUG: Attempted to write to $CONFIG_FILE_PATH."
-
-  if [ -f "$CONFIG_FILE_PATH" ]; then
-    echo "DEBUG: File $CONFIG_FILE_PATH created successfully. Size: $(wc -c < "$CONFIG_FILE_PATH") bytes."
-    # 显示文件的前几行进行调试（注意不要显示敏感信息）
-    echo "DEBUG: First few lines (without sensitive info):"
-    head -n 3 "$CONFIG_FILE_PATH" | grep -v "api:" | grep -v "password"
-  else
-    echo "ERROR: File $CONFIG_FILE_PATH was NOT created."
-    exit 1
-  fi
-fi
-
-# 不需要使用--config参数，因为程序有默认路径
-cd /home
-```
-
-## uni-api 前端部署
-
-uni-api 的 web 前端可以自行部署，地址：https://github.com/yym68686/uni-api-web
-
-也可以使用我提前部署好的前端，地址：https://uni-api-web.pages.dev/
-
-说明：`uni-api-web` 是独立的前后端项目，而 `uni-api` 目前仅提供后端能力。`uni-api-web` 不负责自动重试/故障转移等能力，这些能力仍由 `uni-api` 负责；你只需要在 `uni-api-web` 配置 `uni-api` 的 base url 即可（同时 `uni-api-web` 也可以对接其他兼容的 API）。`uni-api-web` 主要提供用户管理、计费、日志、权限控制等功能；`uni-api` 会一直保持“仅后端”的设计。
-
-前端相关环境变量的解释请参考 `uni-api-web` 的 README：https://github.com/yym68686/uni-api-web
-
-下面是一个 `docker-compose.yml` 示例：
-
-```yaml
-services:
-  web:
-    image: yym68686/uni-api-frontend:main
-    container_name: uni-api-frontend
-    restart: unless-stopped
-    depends_on:
-      - api
-    environment:
-      # Inside Docker, use service-to-service networking (NOT localhost).
-      API_BASE_URL: ${API_BASE_URL:-http://api:8000/v1}
-      NEXT_TELEMETRY_DISABLED: ${NEXT_TELEMETRY_DISABLED:-1}
-      NODE_ENV: ${NODE_ENV:-production}
-      APP_NAME: ${APP_NAME:-UniAPI}
-      GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
-      GOOGLE_REDIRECT_URI: ${GOOGLE_REDIRECT_URI:-}
-    ports:
-      - "8003:3000"
-
-  db:
-    image: postgres:17.6-alpine
-    container_name: uni-api-db
-    restart: unless-stopped
-    environment:
-      POSTGRES_USER: ${DB_POSTGRES_USER:-uniapi}
-      POSTGRES_PASSWORD: ${DB_POSTGRES_PASSWORD:-}
-      POSTGRES_DB: ${DB_POSTGRES_DB:-uniapi}
-    ports:
-      - "5433:5432"
-    volumes:
-      - uniapi_pg_data:/var/lib/postgresql/data
-
-  api:
-    image: yym68686/uni-api-backend:main
-    container_name: uni-api-backend
-    restart: unless-stopped
-    depends_on:
-      - db
-    environment:
-      DATABASE_URL: ${DATABASE_URL:-}
-      APP_ENV: ${APP_ENV:-dev}
-      APP_NAME: ${BACKEND_APP_NAME:-Uni API Backend}
-      API_PREFIX: ${API_PREFIX:-/v1}
-      SESSION_TTL_DAYS: ${SESSION_TTL_DAYS:-7}
-      GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
-      GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:-}
-      GOOGLE_REDIRECT_URI: ${GOOGLE_REDIRECT_URI:-}
-      ADMIN_BOOTSTRAP_TOKEN: ${ADMIN_BOOTSTRAP_TOKEN:-}
-      RESEND_API_KEY: ${RESEND_API_KEY:-}
-      RESEND_FROM_EMAIL: ${RESEND_FROM_EMAIL:-}
-      EMAIL_VERIFICATION_REQUIRED: ${EMAIL_VERIFICATION_REQUIRED:-true}
-    ports:
-      - "8002:8000"
-
-  postgres:
-    container_name: postgres
-    image: postgres:17.6
-    restart: always
-    environment:
-      POSTGRES_USER: ${UNIAPI_POSTGRES_USER:-root}
-      POSTGRES_PASSWORD: ${UNIAPI_POSTGRES_PASSWORD:-}
-      POSTGRES_DB: ${UNIAPI_POSTGRES_DB:-uniapi}
-    ports:
-      - "5432:5432"
-    volumes:
-      - ./postgres_data:/var/lib/postgresql/data
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${UNIAPI_POSTGRES_USER:-root} -d ${UNIAPI_POSTGRES_DB:-uniapi}"]
-      interval: 5s
-      timeout: 5s
-      retries: 5
-
-  uni-api:
-    container_name: uni-api
-    image: yym68686/uni-api:latest
-    environment:
-      # CONFIG_URL: ${CONFIG_URL:-}
-      TIMEOUT: ${TIMEOUT:-200}
-      DB_TYPE: ${DB_TYPE:-postgres}
-      DB_HOST: ${DB_HOST:-postgres}
-      DB_PORT: ${DB_PORT:-5432}
-      DB_USER: ${DB_USER:-root}
-      DB_PASSWORD: ${DB_PASSWORD:-}
-      DB_NAME: ${DB_NAME:-uniapi}
-    depends_on:
-      postgres:
-        condition: service_healthy
-    ports:
-      - "8001:8000"
-    volumes:
-      - ./api-copy.yaml:/home/api.yaml
-      - ./uniapi_db:/home/data
-      - /etc/localtime:/etc/localtime:ro
-    restart: unless-stopped
-
-volumes:
-  uniapi_pg_data:
-```
-
-## 赞助商
-
-我们感谢以下赞助商的支持：
-<!-- ¥2050 -->
-- @PowerHunter：¥2000
-- @IM4O4: ¥100
-- @ioi：¥50
-
-## 如何赞助我们
-
-如果您想支持我们的项目，您可以通过以下方式赞助我们：
-
-1. [PayPal](https://www.paypal.me/yym68686)
-
-2. [USDT-TRC20](https://pb.yym68686.top/~USDT-TRC20)，USDT-TRC20 钱包地址：`TLFbqSv5pDu5he43mVmK1dNx7yBMFeN7d8`
-
-3. [微信](https://pb.yym68686.top/~wechat)
-
-4. [支付宝](https://pb.yym68686.top/~alipay)
-
-感谢您的支持！
 
 ## 常见问题
 
@@ -1232,7 +854,7 @@ proxy_set_header X-Real-IP $remote_addr;
 
 ```bash
 cargo build --locked
-python3 scripts/verify-http.py
+python3 scripts/gateway/verify-http.py
 # 也可单独运行：
 python3 tests/http/verify_control_restore.py target/debug/uni-api-front
 ```
@@ -1240,20 +862,6 @@ python3 tests/http/verify_control_restore.py target/debug/uni-api-front
 手工 mock server 位于 `tests/support/mock_server.go`。旧 Locust 脚本不在
 当前仓库中；历史压测数字不作为此次目录重构的性能验收。
 
-## 安全
-
-我们非常重视项目的安全性。如果您发现任何安全漏洞，请通过 [yym68686@outlook.com](mailto:yym68686@outlook.com) 与我们联系。
-
-**致谢 (Acknowledgments):**
-
-*   我们特别感谢 **[@ryougishiki214](https://github.com/hang333)** 报告了一个安全问题，该问题已在 [v1.5.1](https://github.com/yym68686/uni-api/releases/tag/v1.5.1) 版本中得到解决。
-
 ## 许可证
 
 本项目基于 Apache License 2.0 开源，详见 `LICENSE`。
-
-## ⭐ Star 历史
-
-<a href="https://github.com/yym68686/uni-api/stargazers">
-        <img width="500" alt="Star History Chart" src="https://api.star-history.com/svg?repos=yym68686/uni-api&type=Date">
-</a>

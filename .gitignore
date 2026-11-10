@@ -14,3 +14,7 @@ coverage/
 
 # Rust gateway build output
 /target/
+
+# Python bytecode from the gateway HTTP regressions
+__pycache__/
+*.pyc

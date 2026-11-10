@@ -26,21 +26,18 @@ function mount() {
 }
 
 it.each([
-  ["overview", "总览", "dark"],
-  ["channels", "渠道观测", "light"],
-  ["sub2api", "渠道管理", "dark"],
-  ["prices", "价格设置", "light"],
-  ["balances", "余额管理", "dark"],
-  ["sources", "设置", "light"],
-  ["requests", "日志", "dark"],
-  ["automations", "自动化", "light"],
+  ["overview", "总览"],
+  ["channels", "渠道观测"],
+  ["sub2api", "渠道管理"],
+  ["prices", "价格设置"],
+  ["balances", "余额管理"],
+  ["sources", "设置"],
+  ["requests", "日志"],
+  ["automations", "自动化"],
 ] as const)(
-  "restores the %s shell and saved theme while authentication is pending",
-  async (view, label, theme) => {
+  "restores the %s shell while authentication is pending",
+  async (view, label) => {
     saveView(location.origin, view);
-    localStorage.setItem("uni-console-theme", theme);
-    document.documentElement.dataset.theme =
-      theme === "dark" ? "light" : "dark";
     let resolveAuth!: (response: Response) => void;
     const auth = new Promise<Response>((resolve) => {
       resolveAuth = resolve;
@@ -65,7 +62,6 @@ it.each([
     vi.stubGlobal("fetch", fetchMock);
     const app = mount();
     expect(screen.getByRole("status")).toHaveTextContent("正在恢复会话");
-    expect(document.documentElement).toHaveAttribute("data-theme", theme);
     expect(
       app.container.querySelector(".startup-screen .sidebar .active"),
     ).toHaveTextContent(label);
@@ -93,7 +89,6 @@ it.each([
     expect(
       navigation.getByRole("button", { name: new RegExp(`^${label}`) }),
     ).toHaveClass("active");
-    expect(document.documentElement).toHaveAttribute("data-theme", theme);
     expect(
       app.container.querySelector(".startup-screen"),
     ).not.toBeInTheDocument();

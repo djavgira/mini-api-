@@ -5,17 +5,14 @@ import {
   Gauge,
   LayoutDashboard,
   Menu,
-  Moon,
   ScanLine,
   Server,
   SlidersHorizontal,
-  Sun,
   Wallet,
   Bot,
   Search,
 } from "lucide-react";
 import type { View } from "./preferences";
-import type { Theme } from "./theme";
 import { Brand } from "./ui";
 
 const pages = [
@@ -68,7 +65,7 @@ export function ConsoleNavigation({
       </nav>
       <div className="sidebar-bottom">
         <a
-          href="https://github.com/yym68686/uni-api-web"
+          href="https://github.com/djavgira/mini-api-"
           target="_blank"
           rel="noreferrer"
         >
@@ -86,15 +83,11 @@ export function ConsoleNavigation({
 
 export function ConsoleHeader({
   view,
-  theme,
   onMenu,
-  onTheme,
   onConnection,
 }: {
   view: View;
-  theme: Theme;
   onMenu?: () => void;
-  onTheme?: () => void;
   onConnection?: () => void;
 }) {
   return (
@@ -113,14 +106,6 @@ export function ConsoleHeader({
         <strong>{pages.find((page) => page.view === view)?.label}</strong>
       </div>
       <div className="topbar-actions">
-        <button
-          className="icon-button"
-          disabled={!onTheme}
-          onClick={onTheme}
-          aria-label={theme === "dark" ? "切换浅色模式" : "切换深色模式"}
-        >
-          {theme === "dark" ? <Sun size={18} /> : <Moon size={18} />}
-        </button>
         <button
           className="avatar"
           disabled={!onConnection}

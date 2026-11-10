@@ -13,3 +13,5 @@ docs
 
 # Runtime configuration holds provider credentials; only the example is tracked.
 api.yaml
+__pycache__
+*.pyc

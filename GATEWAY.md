@@ -1,14 +1,5 @@
 # uni-api
 
-<p align="center">
-  <a href="https://t.me/uni_api">
-    <img src="https://img.shields.io/badge/Join Telegram Group-blue?&logo=telegram">
-  </a>
-   <a href="https://hub.docker.com/repository/docker/yym68686/uni-api">
-    <img src="https://img.shields.io/docker/pulls/yym68686/uni-api?color=blue" alt="docker pull">
-  </a>
-</p>
-
 [English](./GATEWAY.md) | [Chinese](./GATEWAY_CN.md)
 
 ## Introduction
@@ -42,10 +33,6 @@ To start uni-api, a configuration file must be used. There are two ways to start
 2. The second method is to mount a configuration file named `api.yaml` into the container.
 
 ### Method 1: Mount the `api.yaml` configuration file to start uni-api
-
-One-click deployment:
-
-[![Deploy to Fugue](https://api.fugue.pro/button.svg?v=a37d3d9)](https://fugue.pro/new/repository?repository-url=https%3A%2F%2Fgithub.com%2Fyym68686%2Funi-api)
 
 You must fill in the configuration file in advance to start `uni-api`, and you must use a configuration file named `api.yaml` to start `uni-api`, you can configure multiple models, each model can configure multiple backend services, and support load balancing. Below is an example of the minimum `api.yaml` configuration file that can be run:
 
@@ -318,7 +305,7 @@ Mount the configuration file and start the uni-api docker container:
 ```bash
 docker run --user root -p 8001:8000 --name uni-api -dit \
 -v ./api.yaml:/home/api.yaml \
-yym68686/uni-api:latest
+uni-api-gateway:local
 ```
 
 ### Method two: Start uni-api using the `CONFIG_URL` environment variable
@@ -328,7 +315,7 @@ After writing the configuration file according to method one, upload it to the c
 ```bash
 docker run --user root -p 8001:8000 --name uni-api -dit \
 -e CONFIG_URL=http://file_url/api.yaml \
-yym68686/uni-api:latest
+uni-api-gateway:local
 ```
 
 ### Codex (`/v1/responses` + `engine: codex`)
@@ -509,45 +496,6 @@ When DB_TYPE is postgres, the following environment variables need to be set:
 - DB_PORT: Database port, default is 5432, optional
 - DB_NAME: Database name, default is postgres, optional
 
-## Koyeb remote deployment
-
-Click the button below to automatically use the built uni-api docker image to deploy:
-
-[![Deploy to Koyeb](https://www.koyeb.com/static/images/deploy/button.svg)](https://app.koyeb.com/deploy?name=uni-api&type=docker&image=docker.io%2Fyym68686%2Funi-api%3Alatest&instance_type=free&regions=was&instances_min=0&env%5BCONFIG_URL%5D=)
-
-There are two ways to let Koyeb read the configuration file, choose one of them:
-
-1. Fill in the environment variable `CONFIG_URL` with the direct link of the configuration file
-
-2. Paste the api.yaml file content, if you paste the api.yaml file content directly into the Koyeb environment variable setting file, after pasting the text in the text box, enter the api.yaml path as `/home/api.yaml` in the path field.
-
-Then click the Deploy button.
-
-## Local development and builds
-
-The service is a single Rust crate at the repository root. The executable is
-still named `uni-api-front`. See [architecture](docs/architecture.md) for module
-ownership and configuration boundaries.
-
-```bash
-cargo build --locked
-cargo fmt --check
-cargo clippy --locked --all-targets -- -D warnings
-cargo test --locked
-python3 scripts/verify-http.py
-```
-
-Supply external configuration through `UNI_API_CONFIG_PATH` or `CONFIG_URL`,
-and set the listening port with `PORT`. Production configuration and credentials
-are not image build inputs.
-
-```bash
-UNI_API_CONFIG_PATH=/path/to/api.yaml DISABLE_DATABASE=true PORT=8000 ./target/debug/uni-api-front
-```
-
-The old Python/Serv00 installation steps no longer apply. These instructions do
-not establish FreeBSD deployment support; use the Docker build below for Linux.
-
 ## Docker local deployment
 
 This document describes the gateway alone. The repository's composed image —
@@ -565,7 +513,7 @@ docker run --user root -p 8001:8000 --name uni-api -dit \
 -e CONFIG_URL=http://file_url/api.yaml \ # If the local configuration file has already been mounted, there is no need to set CONFIG_URL
 -v ./api.yaml:/home/api.yaml \ # If CONFIG_URL is already set, there is no need to mount the configuration file
 -v ./uniapi_db:/home/data \ # If you do not want to save statistical data, there is no need to mount this folder
-yym68686/uni-api:latest
+uni-api-gateway:local
 ```
 
 Or if you want to use Docker Compose, here is a docker-compose.yml example:
@@ -574,7 +522,7 @@ Or if you want to use Docker Compose, here is a docker-compose.yml example:
 services:
   uni-api:
     container_name: uni-api
-    image: yym68686/uni-api:latest
+    image: uni-api-gateway:local
     environment:
       - CONFIG_URL=http://file_url/api.yaml # If a local configuration file is already mounted, there is no need to set CONFIG_URL
     ports:
@@ -586,121 +534,18 @@ services:
 
 CONFIG_URL is the URL of the remote configuration file that can be automatically downloaded. For example, if you are not comfortable modifying the configuration file on a certain platform, you can upload the configuration file to a hosting service and provide a direct link to uni-api to download, which is the CONFIG_URL. If you are using a local mounted configuration file, there is no need to set CONFIG_URL. CONFIG_URL is used when it is not convenient to mount the configuration file.
 
-### api.yaml hot reload (minimal change) + frontend sync
-
-`uni-api` reads `api.yaml` on startup. If you want “edit `api.yaml` in a frontend and have uni-api take effect immediately”, the minimal-change approach is:
-
-- Mount the same `api.yaml` into both backend `uni-api` and a frontend (`uni-api-status`)
-- Add a `config-watcher` service to watch `api.yaml` and `docker restart uni-api` on change
-
-Here is a ready-to-use `docker-compose.yml` example (place `./api.yaml` in the same directory):
-
-```yaml
-services:
-  uni-api:
-    image: yym68686/uni-api:latest
-    container_name: uni-api
-    restart: unless-stopped
-    ports:
-      - "8001:8000"
-    environment:
-      - WATCHFILES_FORCE_POLLING=true
-    volumes:
-      - ./api.yaml:/home/api.yaml
-      - ./uniapi_db:/home/data
-
-  uniapi-frontend:
-    image: ghcr.io/melosbot/uni-api-status:latest
-    container_name: uni-api-frontend
-    restart: unless-stopped
-    ports:
-      - "3700:3000"
-    environment:
-      - NODE_ENV=production
-      - PORT=3000
-      - API_YAML_PATH=/app/config/api.yaml
-      - STATS_DB_PATH=/app/data/stats.db
-    volumes:
-      - ./api.yaml:/app/config/api.yaml
-      - ./uniapi_db:/app/data:ro
-    depends_on:
-      - uni-api
-
-  config-watcher:
-    image: alpine:latest
-    container_name: uni-api-config-watcher
-    restart: unless-stopped
-    volumes:
-      - ./api.yaml:/watch/api.yaml:ro
-      - /var/run/docker.sock:/var/run/docker.sock
-    command: >
-      sh -c "
-      apk add --no-cache inotify-tools docker-cli &&
-      while true; do
-        inotifywait -e modify,close_write /watch/api.yaml &&
-        echo 'api.yaml changed, restarting uni-api...' &&
-        docker restart uni-api
-      done
-      "
-```
-
-Note: `config-watcher` mounts `/var/run/docker.sock` to restart containers; use it only on a trusted host/environment.
-
-If you want to use a single domain for both frontend and API, here is a Caddy reverse proxy example (`Caddyfile`):
-
-```caddyfile
-yourdomain.com {
-  encode gzip
-  tls a@bc.com
-
-  route /v1* {
-    reverse_proxy localhost:8001 {
-      header_up Host {host}
-      header_up X-Real-IP {remote}
-    }
-  }
-
-  route * {
-    reverse_proxy localhost:3700 {
-      header_up Host {host}
-      header_up X-Real-IP {remote}
-    }
-  }
-}
-```
-
-Now you can edit `api.yaml` via `yourdomain.com` (frontend). After saving, `uni-api` will be restarted and read the latest `api.yaml`.
-
-Run Docker Compose container in the background
+Run the container in the background
 
 ```bash
-docker-compose pull
-docker-compose up -d
+docker compose up -d
 ```
 
-Docker build
+`api.yaml` is read at startup. The console edits channel state through the
+platform API, so changing providers or keys means editing `api.yaml` and
+restarting the container:
 
 ```bash
-docker buildx build --platform linux/amd64,linux/arm64 -t yym68686/uni-api:latest --push .
-docker pull yym68686/uni-api:latest
-
-# test image
-docker buildx build --platform linux/amd64,linux/arm64 -t yym68686/uni-api:test -f Dockerfile.debug --push .
-docker pull yym68686/uni-api:test
-```
-
-One-Click Restart Docker Image
-
-```bash
-set -eu
-docker pull yym68686/uni-api:latest
-docker rm -f uni-api
-docker run --user root -p 8001:8000 -dit --name uni-api \
--e CONFIG_URL=http://file_url/api.yaml \
--v ./api.yaml:/home/api.yaml \
--v ./uniapi_db:/home/data \
-yym68686/uni-api:latest
-docker logs -f uni-api
+docker compose restart uni-api
 ```
 
 RESTful curl test
@@ -769,229 +614,6 @@ curl -X POST 'https://xxx.xxx/v1/chat/completions' \
   ]
 }'
 ```
-
-Rust release binaries are built by the Docker/Rust CI workflow.
-
-## HuggingFace Space Remote Deployment
-
-WARNING: Please be aware of the risk of key leakage in remote deployments. Do not abuse the service to avoid account suspension.
-
-The Space repository requires three files: `Dockerfile`, `README.md`, and `entrypoint.sh`.
-To run the program, you also need api.yaml (I'll use the example of storing it entirely in secrets, but you can also implement it via HTTP download). Access matching, model and channel configurations are all in the configuration file.
-
-Operation Steps:
-
-1. Visit https://huggingface.co/new-space to create a new space. It should be a public repository; the open source license/name/description can be filled as desired.
-
-2. Visit your space's files page at https://huggingface.co/spaces/your-name/your-space-name/tree/main and upload the three files (`Dockerfile`, `README.md`, `entrypoint.sh`).
-
-3. Visit your space's settings page at https://huggingface.co/spaces/your-name/your-space-name/settings, find the Secrets section and create a new secret called `API_YAML_CONTENT` (note the uppercase). Write your api.yaml locally, then copy it directly into the secret field using UTF-8 encoding.
-
-4. Still in settings, find Factory rebuild and let it rebuild. If you modify secrets or files, or manually restart the Space, it may get stuck with no logs. Use this method to resolve such issues.
-
-5. In the upper right corner of the settings page, find the three-dot button and select "Embed this Space" to get the public link for your Space. The format is https://(your-name)-(your-space-name).hf.space (remove the parentheses).
-
-Related File Codes:
-
-```Dockerfile
-# Dockerfile,del this line
-# Use the uni-api official image
-FROM yym68686/uni-api:latest
-# Create data directory and set permissions
-RUN mkdir -p /data && chown -R 1000:1000 /data
-# Set up user and working directory
-RUN useradd -m -u 1000 user
-USER user
-ENV HOME=/home/user \
-    PATH=/home/user/.local/bin:$PATH \
-    DISABLE_DATABASE=true
-# Copy entrypoint script
-COPY --chown=user entrypoint.sh /home/user/entrypoint.sh
-RUN chmod +x /home/user/entrypoint.sh
-# Ensure /home directory is writable (this is important!)
-USER root
-RUN chmod 777 /home
-USER user
-# Set working directory
-WORKDIR /home/user
-# Entry point
-ENTRYPOINT ["/home/user/entrypoint.sh"]
-```
-
-```markdown
----
-title: Uni API
-emoji: 🌍
-colorFrom: gray
-colorTo: yellow
-sdk: docker
-app_port: 8000
-pinned: false
-license: gpl-3.0
----
-```
-
-```shell
-# entrypoint.sh,del this line
-#!/bin/sh
-set -e
-CONFIG_FILE_PATH="/home/api.yaml"  # Note this is changed to /home/api.yaml
-echo "DEBUG: Entrypoint script started."
-# Check if Secret exists
-if [ -z "$API_YAML_CONTENT" ]; then
-  echo "ERROR: Secret 'API_YAML_CONTENT' does not exist or is empty. Exiting."
-  exit 1
-else
-  echo "DEBUG: API_YAML_CONTENT secret found. Preparing to write..."
-  printf '%s\n' "$API_YAML_CONTENT" > "$CONFIG_FILE_PATH"
-  echo "DEBUG: Attempted to write to $CONFIG_FILE_PATH."
-
-  if [ -f "$CONFIG_FILE_PATH" ]; then
-    echo "DEBUG: File $CONFIG_FILE_PATH created successfully. Size: $(wc -c < "$CONFIG_FILE_PATH") bytes."
-    # Display the first few lines for debugging (be careful not to display sensitive information)
-    echo "DEBUG: First few lines (without sensitive info):"
-    head -n 3 "$CONFIG_FILE_PATH" | grep -v "api:" | grep -v "password"
-  else
-    echo "ERROR: File $CONFIG_FILE_PATH was NOT created."
-    exit 1
-  fi
-fi
-# No need to use the --config parameter as the program has a default path
-cd /home
-```
-
-## uni-api frontend deployment
-
-The frontend of uni-api can be deployed by yourself, address: https://github.com/yym68686/uni-api-web
-
-You can also use the frontend I deployed, address: https://uni-api-web.pages.dev/
-
-Note: `uni-api-web` is a standalone project with both frontend and backend, while `uni-api` currently provides backend-only capabilities. `uni-api-web` does not handle automatic retries/failover; those capabilities remain in `uni-api`. You only need to configure the base URL of `uni-api` in `uni-api-web` (and `uni-api-web` can also connect to other compatible APIs). `uni-api-web` mainly provides user management, billing, logs, and permission control; `uni-api` will continue to keep the “backend-only” design.
-
-For explanations of the frontend environment variables, see the `uni-api-web` README: https://github.com/yym68686/uni-api-web
-
-Here is a `docker-compose.yml` example (removed `mybot/publicbot/servicebot/addetect`; environment variables use `${VAR:-}` placeholders):
-
-```yaml
-services:
-  web:
-    image: yym68686/uni-api-frontend:main
-    container_name: uni-api-frontend
-    restart: unless-stopped
-    depends_on:
-      - api
-    environment:
-      # Inside Docker, use service-to-service networking (NOT localhost).
-      API_BASE_URL: ${API_BASE_URL:-http://api:8000/v1}
-      NEXT_TELEMETRY_DISABLED: ${NEXT_TELEMETRY_DISABLED:-1}
-      NODE_ENV: ${NODE_ENV:-production}
-      APP_NAME: ${APP_NAME:-UniAPI}
-      GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
-      GOOGLE_REDIRECT_URI: ${GOOGLE_REDIRECT_URI:-}
-    ports:
-      - "8003:3000"
-
-  db:
-    image: postgres:17.6-alpine
-    container_name: uni-api-db
-    restart: unless-stopped
-    environment:
-      POSTGRES_USER: ${DB_POSTGRES_USER:-uniapi}
-      POSTGRES_PASSWORD: ${DB_POSTGRES_PASSWORD:-}
-      POSTGRES_DB: ${DB_POSTGRES_DB:-uniapi}
-    ports:
-      - "5433:5432"
-    volumes:
-      - uniapi_pg_data:/var/lib/postgresql/data
-
-  api:
-    image: yym68686/uni-api-backend:main
-    container_name: uni-api-backend
-    restart: unless-stopped
-    depends_on:
-      - db
-    environment:
-      DATABASE_URL: ${DATABASE_URL:-}
-      APP_ENV: ${APP_ENV:-dev}
-      APP_NAME: ${BACKEND_APP_NAME:-Uni API Backend}
-      API_PREFIX: ${API_PREFIX:-/v1}
-      SESSION_TTL_DAYS: ${SESSION_TTL_DAYS:-7}
-      GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
-      GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:-}
-      GOOGLE_REDIRECT_URI: ${GOOGLE_REDIRECT_URI:-}
-      ADMIN_BOOTSTRAP_TOKEN: ${ADMIN_BOOTSTRAP_TOKEN:-}
-      RESEND_API_KEY: ${RESEND_API_KEY:-}
-      RESEND_FROM_EMAIL: ${RESEND_FROM_EMAIL:-}
-      EMAIL_VERIFICATION_REQUIRED: ${EMAIL_VERIFICATION_REQUIRED:-true}
-    ports:
-      - "8002:8000"
-
-  postgres:
-    container_name: postgres
-    image: postgres:17.6
-    restart: always
-    environment:
-      POSTGRES_USER: ${UNIAPI_POSTGRES_USER:-root}
-      POSTGRES_PASSWORD: ${UNIAPI_POSTGRES_PASSWORD:-}
-      POSTGRES_DB: ${UNIAPI_POSTGRES_DB:-uniapi}
-    ports:
-      - "5432:5432"
-    volumes:
-      - ./postgres_data:/var/lib/postgresql/data
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${UNIAPI_POSTGRES_USER:-root} -d ${UNIAPI_POSTGRES_DB:-uniapi}"]
-      interval: 5s
-      timeout: 5s
-      retries: 5
-
-  uni-api:
-    container_name: uni-api
-    image: yym68686/uni-api:latest
-    environment:
-      # CONFIG_URL: ${CONFIG_URL:-}
-      TIMEOUT: ${TIMEOUT:-200}
-      DB_TYPE: ${DB_TYPE:-postgres}
-      DB_HOST: ${DB_HOST:-postgres}
-      DB_PORT: ${DB_PORT:-5432}
-      DB_USER: ${DB_USER:-root}
-      DB_PASSWORD: ${DB_PASSWORD:-}
-      DB_NAME: ${DB_NAME:-uniapi}
-    depends_on:
-      postgres:
-        condition: service_healthy
-    ports:
-      - "8001:8000"
-    volumes:
-      - ./api-copy.yaml:/home/api.yaml
-      - ./uniapi_db:/home/data
-      - /etc/localtime:/etc/localtime:ro
-    restart: unless-stopped
-
-volumes:
-  uniapi_pg_data:
-```
-
-## Sponsors
-
-We thank the following sponsors for their support:
-<!-- ¥2050 -->
-- @PowerHunter: ¥2000
-- @IM4O4: ¥100
-- @ioi：¥50
-
-## How to sponsor us
-
-If you would like to support our project, you can sponsor us in the following ways:
-
-1. [PayPal](https://www.paypal.me/yym68686)
-
-2. [USDT-TRC20](https://pb.yym68686.top/~USDT-TRC20), USDT-TRC20 wallet address: `TLFbqSv5pDu5he43mVmK1dNx7yBMFeN7d8`
-
-3. [WeChat](https://pb.yym68686.top/~wechat)
-
-4. [Alipay](https://pb.yym68686.top/~alipay)
-
-Thank you for your support!
 
 ## FAQ
 
@@ -1240,7 +862,7 @@ controls, protocol conversion, retries and usage facts.
 
 ```bash
 cargo build --locked
-python3 scripts/verify-http.py
+python3 scripts/gateway/verify-http.py
 # Or run an individual regression:
 python3 tests/http/verify_control_restore.py target/debug/uni-api-front
 ```
@@ -1248,24 +870,6 @@ python3 tests/http/verify_control_restore.py target/debug/uni-api-front
 The manual mock server is `tests/support/mock_server.go`. The old Locust script
 is not present in this repository; historical load-test figures are not validation
 of this directory refactor.
-
-## Security
-
-We take security seriously. If you discover any security issues, please contact us at [yym68686@outlook.com](mailto:yym68686@outlook.com).
-
-**Acknowledgments:**
-
-We would like to thank **[@ryougishiki214](https://github.com/hang333)** for reporting a security issue, which has been resolved in [v1.5.1](https://github.com/yym68686/uni-api/releases/tag/v1.5.1).
-
-## License
-
-Licensed under the Apache License, Version 2.0. See `LICENSE`.
-
-## ⭐ Star History
-
-<a href="https://github.com/yym68686/uni-api/stargazers">
-        <img width="500" alt="Star History Chart" src="https://api.star-history.com/svg?repos=yym68686/uni-api&type=Date">
-</a>
 
 ### Administrator channel diagnostics
 
@@ -1344,3 +948,7 @@ Fact export is asynchronous, with a 4096-event queue and a 64 MiB local retry sp
 Only a matching SHA-256 commit acknowledgement removes a batch. Backpressure or
 unavailable telemetry cannot block model request serving; loss/backlog metadata
 is reported to the console. Configuration recovery remains a separate protocol.
+
+## License
+
+Licensed under the Apache License, Version 2.0. See `LICENSE`.

@@ -150,7 +150,6 @@ import { salePercent } from "./modelPrices";
 import { ConsoleHeader, ConsoleNavigation } from "./ConsoleChrome";
 import { StartupScreen } from "./StartupScreen";
 import { clearSummaryCache } from "./summaryCache";
-import { useTheme } from "./theme";
 const SourceSettings = lazy(() => import("./SourceSettings").then(m => ({default:m.SourceSettings})));
 const Sub2apiChecks = lazy(() => import("./Sub2apiChecks").then(m => ({default:m.Sub2apiChecks})));
 const RequestLogsPage = lazy(() => import("./RequestLogs").then(m => ({default:m.RequestLogsPage})));
@@ -492,7 +491,7 @@ function Welcome({
         <Brand />
         <a
           className="text-link"
-          href="https://github.com/yym68686/uni-api-web"
+          href="https://github.com/djavgira/mini-api-"
           target="_blank"
           rel="noreferrer"
         >
@@ -1047,7 +1046,6 @@ function Dashboard({
     [refresh, setRefresh] = useState(0);
 
   const [auto, setAuto] = useState(false);
-  const [theme, setTheme] = useTheme();
   const deferredSearch = useDeferredValue(search);
   const keys = useQuery({
     enabled: needsChannelData || view === "prices",
@@ -1514,9 +1512,7 @@ function Dashboard({
       <div className="main-shell">
         <ConsoleHeader
           view={view}
-          theme={theme}
           onMenu={() => setMenu(true)}
-          onTheme={() => setTheme(theme === "dark" ? "light" : "dark")}
           onConnection={() =>
             baseConnection.account ? selectView("sources") : changeConnection()
           }
@@ -2313,7 +2309,6 @@ export function LegacyConsole() {
       setConnection(null);
       setError(reason);
       setChange(false);
-      document.documentElement.dataset.theme = "light";
     },
     [client],
   );

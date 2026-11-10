@@ -74,4 +74,4 @@ An error event or a stream ending without a terminal event is recorded as a
 failure. HTTP 200 upstream error objects are not converted into successful output.
 
 Run `python3 tests/http/verify_gemini_native.py target/debug/uni-api-front` for the
-isolated protocol matrix, or `python3 scripts/verify-http.py` for all HTTP checks.
+isolated protocol matrix, or `python3 scripts/gateway/verify-http.py` for all HTTP checks.

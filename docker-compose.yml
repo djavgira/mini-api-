@@ -1,6 +1,6 @@
 # Combined uni-api deployment: one image, one published port, one database.
 #
-#   cp .env.example .env          # then fill in the three required secrets
+#   cp .env.example .env          # then fill in the four required secrets
 #   cp api.example.yaml api.yaml  # then add your providers and api keys
 #   docker compose up -d --build
 #

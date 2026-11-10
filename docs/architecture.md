@@ -8,19 +8,19 @@ uni-api 是独立的模型路由网关。仓库根目录是单个 Rust crate，�
 
 | 路径 | 职责 |
 | --- | --- |
-| `src/main.rs` | 启动 Tokio 并调用库入口。 |
-| `src/app.rs` | 配置、依赖和 HTTP 服务的组装，启动恢复及优雅退出。 |
-| `src/api/` | 公共 API、管理 API、认证入口、HTTP 分发和 CORS。 |
-| `src/config/` | 外部配置读取、模型发现、配置编译与快照数据类型。 |
-| `src/control/` | 渠道意图、设置、变更校验、版本冲突检查、恢复和原子应用。 |
-| `src/routing/` | 身份与模型权限、目录投影、渠道筛选排序、超时与失败策略。 |
-| `src/runtime/` | 应用上下文、当前快照、调度游标、限流冷却、幂等和资源状态。 |
-| `src/upstream/` | HTTP 客户端池、请求准备与执行、重试及 hedging。 |
-| `src/providers/` | 上游请求构造、地址与鉴权规则、Provider 特例和模型目录。 |
-| `src/protocols/` | 协议内容转换、SSE framing、流事件解析和 Responses 修复规则。 |
-| `src/transport/` | HTTP 头过滤、请求/响应体读取、解压、multipart 与 spool。 |
-| `src/observability/` | 请求上下文、dispatch/stream 时间、用量、指标及事实生成。 |
-| `src/storage/` | 可选数据库、受限重试队列及请求事实 HTTP 上报。 |
+| `gateway-src/main.rs` | 启动 Tokio 并调用库入口。 |
+| `gateway-src/app.rs` | 配置、依赖和 HTTP 服务的组装，启动恢复及优雅退出。 |
+| `gateway-src/api/` | 公共 API、管理 API、认证入口、HTTP 分发和 CORS。 |
+| `gateway-src/config/` | 外部配置读取、模型发现、配置编译与快照数据类型。 |
+| `gateway-src/control/` | 渠道意图、设置、变更校验、版本冲突检查、恢复和原子应用。 |
+| `gateway-src/routing/` | 身份与模型权限、目录投影、渠道筛选排序、超时与失败策略。 |
+| `gateway-src/runtime/` | 应用上下文、当前快照、调度游标、限流冷却、幂等和资源状态。 |
+| `gateway-src/upstream/` | HTTP 客户端池、请求准备与执行、重试及 hedging。 |
+| `gateway-src/providers/` | 上游请求构造、地址与鉴权规则、Provider 特例和模型目录。 |
+| `gateway-src/protocols/` | 协议内容转换、SSE framing、流事件解析和 Responses 修复规则。 |
+| `gateway-src/transport/` | HTTP 头过滤、请求/响应体读取、解压、multipart 与 spool。 |
+| `gateway-src/observability/` | 请求上下文、dispatch/stream 时间、用量、指标及事实生成。 |
+| `gateway-src/storage/` | 可选数据库、受限重试队列及请求事实 HTTP 上报。 |
 | `assets/` | 编译期内置模型目录和静态图标，不放生产渠道配置。 |
 | `tests/http/` | 真实进程与隔离本地上游的 Python 回归。 |
 | `tests/fixtures/` | 配置、协议和流的固定样例；`manual/` 是历史手工样例。 |
@@ -82,19 +82,20 @@ cargo fmt --check
 cargo clippy --locked --all-targets -- -D warnings
 cargo test --locked
 cargo build --locked
-python3 scripts/verify-http.py
-docker build -t uni-api:local .
+python3 scripts/gateway/verify-http.py
+docker build -f docker/Dockerfile.merged -t uni-api:local .
 ```
 
 HTTP runner 默认运行所有 `tests/http/verify_*.py`，也可传入指定二进制：
 
 ```bash
-python3 scripts/verify-http.py /absolute/path/to/uni-api-front
+python3 scripts/gateway/verify-http.py /absolute/path/to/uni-api-front
 python3 tests/http/verify_control_restore.py target/debug/uni-api-front
 ```
 
 这些测试使用本地 mock 和临时配置，不需要业务 key、真实付费请求或生产数据库。
-`.dockerignore` 只允许 Cargo 文件、源码、内置资源和 README 进入构建上下文。
+`docker/Dockerfile.merged` 从仓库根目录构建合并镜像（网关 + 控制台 + 分析服务）；
+根 `.dockerignore` 排除构建产物、依赖目录、凭据和文档。
 编译期资源统一通过 `CARGO_MANIFEST_DIR` 定位。
 
 ## 迁移对应关系
@@ -102,14 +103,14 @@ python3 tests/http/verify_control_restore.py target/debug/uni-api-front
 | 原路径或模块 | 当前归属 |
 | --- | --- |
 | `rust/uni-api-native/Cargo.*`、`.cargo/` | 仓库根目录。 |
-| `rust/uni-api-native/src/bin/uni-api-front/` | `src/` 下按职责组织。 |
+| `rust/uni-api-native/src/bin/uni-api-front/` | `gateway-src/` 下按职责组织。 |
 | `responses_native.rs` | `config/snapshot.rs`、`routing/`、`runtime/`、`upstream/responses/`。 |
 | `generic_api.rs` | `api/gateway.rs`、`providers/`、`protocols/`、`upstream/generic.rs`。 |
 | `proxy.rs` | `api/handler.rs`、`runtime/context.rs`、`upstream/client.rs`、`transport/`。 |
 | `native_api.rs` | `api/platform.rs`。 |
 | `channel_controls.rs`、`channel_settings.rs` | `control/channels.rs`、`control/settings.rs`。 |
 | `static/`、`uni_api/api/*.json` | `assets/static/`、`assets/codex/`。 |
-| `scripts/verify_*.py` | `tests/http/`，统一入口是 `scripts/verify-http.py`。 |
+| `scripts/verify_*.py` | `tests/http/`，统一入口是 `scripts/gateway/verify-http.py`。 |
 | `test/fixtures/`、`test/runtime_contracts.fixture` | `tests/fixtures/`。 |
 
 二进制名、镜像入口、HTTP 路由、环境变量名、`/home/api.yaml`、快照格式、

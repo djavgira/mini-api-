@@ -3,10 +3,8 @@ import { ConsoleHeader, ConsoleNavigation } from "./ConsoleChrome";
 import { loadView } from "./preferences";
 import { PageLoading } from "./PageLoading";
 import { loadConnection } from "./session";
-import { useTheme } from "./theme";
 
 export function StartupScreen({ onRetry }: { onRetry?: () => void }) {
-  const [theme] = useTheme();
   const [{ view, account }] = useState(() => {
     const connection = loadConnection();
     return {
@@ -21,7 +19,7 @@ export function StartupScreen({ onRetry }: { onRetry?: () => void }) {
       </aside>
       <div className="main-shell">
         <div aria-hidden="true" inert>
-          <ConsoleHeader view={view} theme={theme} />
+          <ConsoleHeader view={view} />
         </div>
         <main className="workspace">
           {onRetry ? (

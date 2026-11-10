@@ -31,7 +31,7 @@ def stop_processes(process: subprocess.Popen) -> None:
 
 
 def main() -> int:
-    root = Path(__file__).resolve().parents[1]
+    root = Path(__file__).resolve().parents[2]
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
         "binary", nargs="?", type=Path, default=root / "target/debug/uni-api-front"

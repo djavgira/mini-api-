@@ -1,304 +1,175 @@
 # uni-api
 
-A unified gateway for large language model APIs, plus a console for observing and
-operating it. Both ship in one image: nginx serves the console and proxies model
-traffic to the gateway running beside it.
+一个面向大模型 API 的统一网关，以及配套的观测与运营控制台。二者打包在同一个镜像里：
+nginx 对外提供控制台页面，并把模型请求转发给同容器内的网关。
 
-## Quick start
+本仓库只提供容器化部署方式 —— Docker Compose（也可用 Podman Compose）。镜像内包含
+全部运行组件，无需在宿主机安装 Node、Go 或 Rust。
+
+## 部署要求
+
+- Docker 20.10+ 与 Docker Compose v2，或 Podman 4+ 与 podman-compose / `podman compose`
+- 镜像约 170 MB（含全部运行组件），另需构建缓存与数据库空间
+- 一个可写的 `api.yaml` 与 `.env` 所在目录
+
+## 快速开始
 
 ```sh
-cp .env.example .env          # fill in the four required secrets
-cp api.example.yaml api.yaml  # add your providers and api keys
+cp .env.example .env          # 填入四项必填密钥
+cp api.example.yaml api.yaml  # 填入 provider 与调用密钥
 docker compose up -d --build
 ```
 
-Open http://localhost:8000 and sign in with `ADMIN_USERNAME` / `ADMIN_PASSWORD`.
-The console already lists the local gateway as a source, so channels appear
-without any manual connection setup.
+浏览器打开 http://localhost:8000 ，用 `.env` 里的 `ADMIN_USERNAME` / `ADMIN_PASSWORD`
+登录。控制台首次启动会自动登记本地网关为来源，无需手工添加连接。
 
-`api.yaml` and `.env` hold credentials and are git ignored. Never commit them.
+`api.yaml` 与 `.env` 含凭据，已在 `.gitignore` 中排除，请勿提交。
 
-## Routing
+## 端口与路由
 
-One published port. nginx owns it and is the only surface reachable from
-outside the container:
+只有一个对外发布端口，由 nginx 独占；网关与分析服务都只监听容器内的回环地址。
 
-| Path            | Destination                                        |
-| --------------- | -------------------------------------------------- |
-| `/v1/*`         | gateway, loopback `8001` — model traffic and the platform API |
-| `/analytics/*`  | analysis service, loopback `8080` — console backend |
-| `/analytics/v1/runtime-{facts,restore}/*` | analysis service, prefix stripped for machine ingestion |
-| everything else | console single-page app                            |
-
-The gateway and the analysis service both bind loopback only, so publishing the
-gateway port directly is never necessary. Requests to `/v1/` need a key from
-`api.yaml`; anonymous calls are rejected.
-
-## Configuration
-
-`.env` carries deployment secrets:
-
-| Variable | Required | Meaning |
-| --- | --- | --- |
-| `POSTGRES_PASSWORD` | yes | Shared database password, inside the compose network only |
-| `CONTROL_MASTER_KEY` | yes | Encrypts console-stored source credentials, 32+ characters |
-| `ADMIN_PASSWORD` | yes | First console login, 12–72 bytes |
-| `GATEWAY_ADMIN_KEY` | yes | One key from `api.yaml`; identifies the gateway to the console |
-| `UNI_API_PORT` | no | Published port, default `8000` |
-| `PUBLIC_ORIGIN` | no | Browser-facing origin, default `http://127.0.0.1:8000` |
-| `INSECURE_COOKIE` | no | Set `false` once served over HTTPS, default `true` |
-
-`GATEWAY_ADMIN_KEY` must be the first entry in `api.yaml`'s `api_keys`, or a
-key whose `role` is `admin` or starts with `admin-`. Only such a key may read
-the platform observation API and edit channel settings. The entrypoint reads
-`api.yaml`, registers that key as the console's source credential, and uses it
-to authenticate the runtime-fact export; the console reuses the stored value,
-so the two never drift apart.
-
-`api.yaml` carries providers and caller keys. `api.example.yaml` shows the
-minimum, and GATEWAY.md documents provider options, model mapping, rate limits,
-per-key preferences and the rest of the gateway configuration language.
-
-The database budget is 10 GB with oldest-first reclamation; see
-[PostgreSQL analysis service](#postgresql-analysis-service) for the eviction
-rules, partitioning and retention boundary.
-
-## Repository layout
-
-| Path | Contents |
+| 路径 | 去向 |
 | --- | --- |
-| `src/`, `index.html`, `package.json` | console frontend (Vite, React, TypeScript) |
-| `analytics-api/` | console backend and channel analysis (Go) |
-| `gateway-src/`, `gateway-tests/`, `assets/` | Rust gateway |
-| `docker/` | image build, nginx site template, entrypoint, supervision |
-| `docs/` | console design notes; gateway notes under `docs/gateway/` |
-| `GATEWAY.md`, `GATEWAY_CN.md` | gateway reference |
+| `/v1/*` | 网关（回环 `8001`）—— 模型流量与平台 API |
+| `/analytics/*` | 分析服务（回环 `8080`）—— 控制台后端 |
+| `/analytics/v1/runtime-{facts,restore}/*` | 分析服务，去掉前缀后交给机器接口 |
+| 其余路径 | 控制台单页应用 |
 
-## Operating notes
+因此永远不需要额外发布网关端口；`/v1/` 请求需要 `api.yaml` 中的调用密钥，匿名请求
+返回 403。
 
-- Rebuilding replaces the image, not the data: `postgres-data` and
-  `uni-api-data` are volumes. `docker compose down -v` deletes request history
-  and console configuration.
-- `docker/smoke-test.sh http://localhost:8000 <api-key>` probes the routing
-  table and reports which paths are misrouted.
-- Logs are per-program in container output; the nginx access log is structured
-  JSON with `request_id`, upstream address, status and timings.
-- A fresh install creates the console administrator only while the user table
-  is empty. Change the password from inside the console afterwards.
+## 配置
 
-## Features
+`.env` 保存部署密钥：
 
-- Separate connection page, responsive workspace, light and dark themes.
-- Provider configuration order by default; API key selection keeps its configured
-  channel set and order. Search, model/status/balance filters, explicit sorting
-  and pagination compose without changing routing.
-- Remember API key, model, endpoint, streaming mode, time window, search, status, balance and sort filters
-  across reloads. Reset filters in one click; deleted keys/models require an
-  explicit new selection. Reopening starts on the first page.
-- Channel success rate, completed attempt count, request-to-dispatch p50 and first
-  output p50/p95. Detailed drawers show upstream model, exact latest timing,
-  samples, last success and balance details.
-- Balance view with independent loading, three concurrent reads, five-minute
-  cache and explicit unsupported/error/unknown states. Shared balances are never
-  summed. An exhausted channel requires all upstream keys to be known and empty.
-- Optional one-minute traffic buckets from the timeseries API; no synthetic charts.
-- Channel drawers share one scoped history request for response-created p50/p95,
-  success-rate and cache-rate curves. Gaps stay empty. Independent availability,
-  current-model Tool use, Astra quality and automatic-model compaction checks
-  target the selected source/provider through the gateway, including key-owned
-  temporary channels, without changing routes. Availability-only checks do not
-  run the quality probe.
-- Add-to-channel editors preload per-source API key directories independently
-  of route configuration. Cached selectors remain usable during refreshes;
-  live revision, key membership and route checks still gate saving. The key
-  directory stays in the login's query cache and is discarded on logout or a
-  source credential change.
-- Batch model edits retain previously saved unverified model mappings only on
-  the keys already serving that exact mapping; the preview names mappings that
-  will not be added elsewhere. Other verified additions proceed normally.
-  Batch writes wait briefly for background configuration recovery, then reread
-  and check the original revision before modifying any routes. Model-validation
-  failures identify the actual unverified upstream names.
-- Optional 30-second metric refresh, paused while the page is in the background.
-- PostgreSQL history across today/week/month/year/all ranges, usage and estimated
-  cost dashboards, live channel concurrency, cache rates and editable model prices.
-- Motion entrance/tab transitions, Radix accessible dialogs/tooltips, reduced
-  motion support, keyboard navigation and a mobile navigation drawer.
+| 变量 | 必填 | 说明 |
+| --- | --- | --- |
+| `POSTGRES_PASSWORD` | 是 | 数据库密码，仅在 compose 网络内使用 |
+| `CONTROL_MASTER_KEY` | 是 | 加密控制台保存的来源凭据，至少 32 字符 |
+| `ADMIN_PASSWORD` | 是 | 控制台首个登录密码，12–72 字节 |
+| `GATEWAY_ADMIN_KEY` | 是 | `api.yaml` 中的某个密钥，网关用它向控制台认证 |
+| `UNI_API_PORT` | 否 | 发布端口，默认 `8000` |
+| `PUBLIC_ORIGIN` | 否 | 浏览器访问的源，默认 `http://127.0.0.1:8000` |
+| `INSECURE_COOKIE` | 否 | 走 HTTPS 后设为 `false`，默认 `true` |
+| `ANALYTICS_TIMEZONE` | 否 | 统计时区，默认 `Asia/Shanghai` |
 
-## Metric scope
+`GATEWAY_ADMIN_KEY` 必须是 `api.yaml` 中 `api_keys` 的第一项，或 `role` 为 `admin`
+或 `admin-` 开头的密钥 —— 只有这类密钥能读取平台观测 API 并修改渠道配置。容器入口脚本
+会解析 `api.yaml`，把该密钥登记为控制台的来源凭据，同时用它认证运行时事实导出，
+因此两处不会不一致。
 
-The workspace defaults to `endpoint=all&stream=all`; endpoint and streaming mode
-can be filtered independently. Aggregate latency quantiles are calculated by the
-backend from merged histograms, never by averaging group p50/p95 values. Attempts are not
-user requests: retries count separately. Overall success rate is weighted by
-completed attempts, never averaged from row percentages. API key selection
-filters channel configuration; statistics still include all requests to those
-channels. p50/p95 are histogram upper-bound estimates and must not be added
-between stages. Historical facts and incrementally updated minute/day aggregates are retained in PostgreSQL. Only current concurrency remains a live instance metric.
-Error responses never turn into a fake zero balance or success rate. The analytics API
-reports each source's latest persisted fact separately from the last authenticated exporter heartbeat. If a source has recent completed live traffic but no persisted fact for over
-two minutes, the console warns of missing history and labels zero attempt counts
-as unsynchronized. An idle source or an in-flight request alone does not trigger
-this warning.
+`api.yaml` 保存 provider 与调用者密钥。`api.example.yaml` 是最小示例；
+[GATEWAY.md](GATEWAY.md)（[中文](GATEWAY_CN.md)）说明 provider 选项、模型映射、
+限流、密钥偏好等完整的网关配置语法。
 
-## Platform endpoints
+## 数据与卷
 
-### 添加渠道
+| 卷 | 内容 |
+| --- | --- |
+| `postgres-data` | 控制台配置、来源凭据、会话、价格、请求历史、网关统计 |
+| `uni-api-data` | 网关运行时数据（快照、请求临时文件、事实重发缓冲） |
 
-渠道观测的 **添加渠道** 打开通用模态框：选择 uni-api 来源与调用 API key，
-填写渠道名称、完整上游地址、一个或多个密钥及模型映射。引擎默认「自动识别」：保存时省略 `engine`，保留原地址和模型，由 uni-api 按 base URL 统一识别，模型名不参与判断。`/v1/responses` 自动使用 `codex`，Messages、Gemini、Vertex、AWS 等特殊地址沿用网关已有规则，未命中统一使用 `gpt`。同一完整地址下的混合模型共用该引擎，不按模型名强制拆分。手动指定引擎保持优先；旧网关未声明 `automatic_engine` 时要求升级或明确选择引擎。
-AWS / Vertex 支持平台凭据；高级模式可直接填写单渠道 JSON / YAML，包含请求
-改写、超时、冷却等来源声明支持的配置。未知字段会报错，不会静默丢弃。
-新渠道仅属于所选调用 Key，使用原有校验、操作编号、加密保留和审计流程；
-连接中断后核对原操作，不重复创建。校验不会发送模型请求。网关必须在
-`/v1/channel-settings/schema` 声明 `create_provider`，旧来源需更新 uni-api。
+两个持久化存储共用一个 PostgreSQL 实例，数据库不对外发布。重新构建镜像不会影响数据；
+`docker compose down -v` 会删除请求历史与控制台配置，执行前请确认。
 
-### TypeSafe / Jev
+数据库总预算 10,000,000,000 字节，从 7.5 GB 起按最旧优先回收，回收至 6.5 GB 为止，
+余量保留给 WAL、索引、临时查询文件与受保护的控制状态；配置、价格、凭据与待处理操作
+不参与回收。请求事实与聚合按小时分区，丢弃最旧分区即可在提交时释放文件。
+`GET /analytics/v1/status` 返回实际占用、水位与保留边界。
 
-In account mode, use **添加渠道**, select the `typesafe` engine, set
-`https://api.typesafe.ai/v1/systemone`, enter a TypeSafe key and the JEV models.
-The gateway must advertise `create_provider` in `/v1/channel-settings/schema`. Creation uses validated,
-key-scoped channel settings and the existing encrypted retention workflow.
+备份没有内置方案，请直接备份 `postgres-data` 卷，或在容器内使用 `pg_dump`：
 
-“设置”（原“来源设置”）为每个来源提供“全局设置”：模型超时、按端点 / 流式状态 / 模型匹配的超时规则、心跳间隔、渠道与密钥冷却，以及 hedging 开关和并行尝试数。渠道页显示继承值、渠道自定义值和运行时默认值；“继承全局设置”删除渠道覆盖，“恢复基础值”恢复基础配置，两者不会混淆。仅打开编辑器不会将继承值保存为渠道覆盖。设置修改需要先预览，再通过原有加密保留及操作记录流程保存；开启保留时会随来源重启恢复。`AUTO_RETRY` 实际由调用 API key 控制，渠道页会明确提示。需先更新所有来源网关至支持 `schema.global_settings` 的版本；部署本身不会更改现有设置。
-An interrupted save is reconciled by operation ID before another write.
+```sh
+docker compose exec postgres pg_dump -U uni-api uni-api > backup.sql
+```
 
-JEV uses `POST /v1/systemone` with `model`, `state`, and `questions`; it supports
-Choice, Noul, Score, and multiple questions in one request. It is not a chat or
-Responses model. `GET /v1/models` also exposes the TypeSafe SDK's `models` shape.
-The reference input price is USD 0.042 per million tokens, with free output,
-according to [TypeSafe's model documentation](https://docs.typesafe.ai/models).
-These models are excluded from sub2api chat probes.
+## 运维
 
-### Observation APIs
+```sh
+docker compose ps                       # 状态
+docker compose logs -f uni-api          # 各组件日志混在容器输出中
+docker compose restart uni-api          # 修改 api.yaml 后重启生效
+docker compose up -d --build            # 更新到当前代码
+docker compose down                     # 停止（保留数据）
+docker compose down -v                  # 停止并删除数据
+```
+
+- `api.yaml` 只在启动时读取。控制台通过平台 API 改渠道状态，但更换 provider 或密钥
+  需要编辑 `api.yaml` 后重启容器。
+- 健康检查走 `http://127.0.0.1:8000/healthz`；`/analytics/readyz` 额外验证数据库
+  可达。两个接口都不需要认证，可直接用于探活。
+- 部署后可用自带的冒烟脚本核对路由：
+
+  ```sh
+  sh docker/smoke-test.sh http://localhost:8000 <api-key>
+  ```
+
+  脚本依次检查 healthz、控制台首页、前端深链接、分析服务、带密钥的 `/v1/models`
+  和匿名拒绝，并指出哪个路径被错误转发。
+- nginx 访问日志是结构化 JSON，包含 `request_id`、上游地址、状态与耗时。
+- 控制台管理员只在用户表为空时创建，之后修改密码请在控制台内操作。
+
+## Podman
+
+同一份 compose 文件可直接用于 Podman：
+
+```sh
+podman compose up -d --build
+```
+
+`podman compose` 需要一个 compose provider（`podman-compose`，或调用已安装的
+`docker-compose`）。若不使用 compose，也可直接用 Podman 运行镜像并手工启动
+PostgreSQL，但入口脚本依赖 compose 传入的 `CONTROL_DATABASE_URL` 等环境变量，
+自行为全部变量赋值后才能启动。
+
+## 升级与迁移
+
+镜像重建不影响已提交数据，服务启动只执行增量的版本化 schema 迁移，不会重新导入历史。
+从旧存储版本迁移是一次性显式操作，流程见
+[cutover 设计](docs/postgresql-only-storage.md)：先用
+`scripts/migrate-postgresql.py` 读取并校验旧对象，再在容器内执行
+
+```sh
+# 准备 schema、导入已校验的价格与事实、记录激活阶段
+docker compose exec uni-api /usr/local/bin/analytics-api migrate-postgresql
+```
+
+正常运行的镜像不含旧版读取器。迁移期间建议先停业务流量，完成后用
+`/analytics/readyz` 确认数据库可用。
+
+## 观测接口
+
+控制台所有观测请求都经 `/analytics/v1/sources/{id}/proxy/v1/...` 代理到网关，
+网关侧对应：
 
 - `GET /v1/api-keys`
 - `GET /v1/model-channels`
 - `GET /v1/channel-metrics`
 - `GET /v1/channel-metrics/timeseries`
 - `GET /v1/channel-balances?provider=...`
-- `GET /analytics/v1/analytics?range=...` (analysis service)
-- `GET /analytics/v1/status` (analysis service)
-- `GET /analytics/v1/prices` and `PUT /analytics/v1/prices/{model}`
+- `GET /v1/stats`、`GET /v1/token_usage`
+- `GET /v1/models`、`GET /v1/codex/models`
 
-Users sign in with a console username and password. The API stores bcrypt password
-hashes and hashed, revocable 30-day sessions in PostgreSQL. Cookies are HttpOnly,
-Secure and SameSite=Strict. The frontend never stores a source credential.
+分析服务自身提供 `GET /analytics/v1/analytics?range=...`、`GET /analytics/v1/status`、
+`GET /analytics/v1/prices` 与 `PUT /analytics/v1/prices/{model}`。
 
-The entrypoint registers the local gateway automatically, so a fresh install needs
-no manual source setup. Under Sources, further gateways are added by name, uni-api
-URL and platform administrator key. The gateway reports facts to the source-bound
-authenticated ingestion endpoint. The backend encrypts credentials with
-`CONTROL_MASTER_KEY`, validates platform access and proxies only observation
-endpoints. The default view combines sources; selecting a source
-scopes catalog, API keys, concurrency, balances and historical analytics. Same-name
-providers are separate rows. Shared upstream wallet totals must not be added across
-sources: these are account-level charges, not source-attributable request costs.
+控制台使用用户名密码登录，密码以 bcrypt 哈希、会话以可撤销的 30 天哈希保存在
+PostgreSQL 中，Cookie 为 HttpOnly + SameSite=Strict，前端不保存来源凭据。
+`PUBLIC_ORIGIN` 需与浏览器实际使用的协议和主机一致，否则控制台会按跨站请求拒绝登录。
 
-Set `PUBLIC_ORIGIN` to the browser-facing console origin when a hosting proxy rewrites Host. Same-origin checks use this explicit origin; they never trust a client to choose it. Nginx also forwards its received host for simple local compose deployments.
-The API supports `/v1/auth/me`, `/login`, `/logout`, `/password` under `/v1/auth`,
-source CRUD under `/v1/sources`, and authenticated source observation proxies.
-When account mode is disabled, a legacy direct-key connection remains available.
-Network failure never downgrades an enabled account service to legacy mode.
+## 仓库结构
 
-## PostgreSQL analysis service
+| 路径 | 内容 |
+| --- | --- |
+| `src/`、`index.html`、`package.json` | 控制台前端（Vite + React + TypeScript） |
+| `analytics-api/` | 控制台后端与渠道分析（Go） |
+| `gateway-src/`、`assets/` | Rust 网关 |
+| `docker/` | 镜像构建、nginx 站点模板、入口脚本、进程监管、冒烟脚本 |
+| `docker-compose.yml` | 部署编排 |
+| `docs/` | 设计与存储说明 |
+| `GATEWAY.md`、`GATEWAY_CN.md` | 网关配置参考 |
 
-The API and frontend are stateless. All durable settings, source/account credentials,
-admin password hashes, sessions, prices, encrypted gateway recovery documents,
-detection results and request history live in PostgreSQL. Credentials in the
-database remain encrypted; the master key is not stored beside their ciphertext.
+## 许可
 
-The compose file runs one PostgreSQL instance shared by both durable stores: the
-gateway keeps its request and channel statistics there, and the console keeps the
-rest. The database is not published outside the compose network. Backups are not
-configured.
-
-The console creates only the first administrator, and only while the user table
-is empty. Restarting the service reuses committed data and runs only versioned
-additive schema migrations; it does not reimport request history.
-`/readyz` verifies database access before the candidate serves traffic.
-
-Gateway facts use `POST /v1/runtime-facts/{source_id}` with a source-bound Bearer
-credential. New gateways use `FACTS_INGEST_URL` / `FACTS_INGEST_TOKEN`, or derive
-these from `UNI_API_CONTROL_RESTORE_URL` / `UNI_API_CONTROL_RESTORE_TOKEN`.
-The exporter has a bounded queue and local retry spool outside the paid request
-path. It deletes a batch only after a matching SHA-256 acknowledgement. Retries
-are deduplicated in the same transaction that adds facts, aggregate deltas and a
-shared revision. Epoch, sequence, pending and loss counters expose collection gaps;
-automation cannot apply a rule over a known incomplete window.
-
-The total database budget is 10,000,000,000 bytes. Admission starts oldest-first
-reclamation at 7.5 GB and reclaims toward 6.5 GB, reserving the remainder for WAL,
-indexes, temporary query files and protected control state. Request facts and
-aggregates use hourly physical partitions; dropping the oldest partition releases
-files at commit. Receipt caches are shortened to the same retained boundary in
-bounded idle-account transactions and vacated pages are reusable. Configuration,
-prices, credentials and pending operations are never FIFO eviction candidates.
-If protected state leaves insufficient capacity, ingestion returns an explicit
-retryable error rather than deleting it. The existing time filters are unchanged;
-there is no age-based expiration. A window reaching past the actual retained
-boundary is marked partial/history-limited, never fabricated as a complete zero.
-
-`GET /v1/status` exposes actual database bytes, capacity watermarks and the
-retained boundary. Safe request IDs and per-route/per-stage durations diagnose
-slow reads without logging credentials or request contents. Large analytical
-and receipt queries retain bounded concurrency and cancellation; PostgreSQL
-indexes and transactional range summaries avoid full-history freshness scans.
-
-One-time migration is explicit: `scripts/migrate-postgresql.py` reads and verifies
-legacy immutable objects; `analytics-api migrate-postgresql` prepares the schema,
-imports validated prices/facts and records a validated activation phase. The normal
-image includes no legacy reader. A three-way final price merge preserves edits
-made in either release and blocks completion on conflicts. Legacy bucket settings
-are ignored at runtime except for an activation guard preventing an unprepared
-upgrade. See [the cutover design](docs/postgresql-only-storage.md).
-
-## Local development
-
-The console runs on Vite and talks to a gateway and analysis service it does
-not start itself:
-
-```sh
-npm ci
-npm run dev            # http://127.0.0.1:4173
-```
-
-For account mode, run the analysis service and nginx locally and point
-`ANALYTICS_UPSTREAM` at it. For the legacy direct-key connection, enter a
-gateway endpoint and an admin key in the connection form; the gateway must
-allow the browser origin through CORS. Verified connections stay in the current
-tab's `sessionStorage`, so reloads do not require another login, and credentials
-are never written to `localStorage`. The platform key is revalidated before any
-channel query: an authentication rejection clears the saved connection, while a
-temporary network failure keeps it for retry. Theme and filter preferences are
-stored locally, filters per normalized service address, and only the selected
-key's opaque ID — never the credential — is persisted.
-
-## Build and verify
-
-```sh
-npm ci
-npm test               # console unit tests
-npm run build          # tsc + vite -> dist/
-
-cd analytics-api
-go vet ./... && go build ./...
-TEST_CONTROL_DATABASE_URL='postgres://postgres:secret@127.0.0.1:5432/analytics_test?sslmode=disable' \
-  go test ./...
-cd ..
-
-cargo test             # gateway
-docker compose build   # the deployable image
-```
-
-The analysis tests need a reachable PostgreSQL; anything without
-`TEST_CONTROL_DATABASE_URL` skips or fails on ingestion and spend cases. The
-gateway tests need no external service.
-
-Once the stack is running, `docker/smoke-test.sh http://localhost:8000 <api-key>`
-probes every route and reports which path is misrouted.
-
-`.github/workflows/check.yml` runs the console suite, the nginx upstream
-splitters and the analysis service tests (against a PostgreSQL service
-container) on push and pull requests. Dependencies are pinned through
-`package-lock.json`, `Cargo.lock` and `analytics-api/go.sum`.
+Apache License 2.0，详见 `LICENSE`。
