@@ -25,6 +25,16 @@ docker compose up -d --build
 
 `api.yaml` 与 `.env` 含凭据，已在 `.gitignore` 中排除，请勿提交。
 
+不自行构建时，把 `docker-compose.yml` 里的 `build:` 换成已发布的镜像：
+
+```yaml
+services:
+  uni-api:
+    image: djavgira/mini-api:latest
+```
+
+镜像由 `main` 分支的每次推送自动构建并发布，架构为 `linux/amd64`。
+
 ## 端口与路由
 
 只有一个对外发布端口，由 nginx 独占；网关与分析服务都只监听容器内的回环地址。
@@ -169,6 +179,20 @@ PostgreSQL 中，Cookie 为 HttpOnly + SameSite=Strict，前端不保存来源�
 | `docker-compose.yml` | 部署编排 |
 | `docs/` | 设计与存储说明 |
 | `GATEWAY.md`、`GATEWAY_CN.md` | 网关配置参考 |
+
+## 镜像发布
+
+`.github/workflows/publish.yml` 在 `main` 推送时构建 `docker/Dockerfile.merged`
+并推送到 Docker Hub 的 `djavgira/mini-api`，同时打 `latest` 与提交 SHA 两个标签，
+也可在 Actions 页面手动触发。仓库需要配置两个 secret：
+
+| Secret | 内容 |
+| --- | --- |
+| `DOCKERHUB_USERNAME` | Docker Hub 账号，推送用户 |
+| `DOCKERHUB_TOKEN` | Docker Hub 访问令牌（只读之外的 read-write 权限） |
+
+流水线不做版本号自增，也不跑测试；镜像的可见端口、健康检查与 `docker compose`
+部署完全一致。
 
 ## 许可
 
