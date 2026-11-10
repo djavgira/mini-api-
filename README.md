@@ -30,7 +30,7 @@ docker compose up -d --build
 ```yaml
 services:
   uni-api:
-    image: djavgira/mini-api:latest
+    image: painwind/mini-api:latest
 ```
 
 镜像由 `main` 分支的每次推送自动构建并发布，架构为 `linux/amd64`。
@@ -183,7 +183,7 @@ PostgreSQL 中，Cookie 为 HttpOnly + SameSite=Strict，前端不保存来源�
 ## 镜像发布
 
 `.github/workflows/publish.yml` 在 `main` 推送时构建 `docker/Dockerfile.merged`
-并推送到 Docker Hub 的 `djavgira/mini-api`，同时打 `latest` 与提交 SHA 两个标签，
+并推送到 Docker Hub 的 `painwind/mini-api`，同时打 `latest` 与提交 SHA 两个标签，
 也可在 Actions 页面手动触发。仓库需要配置两个 secret：
 
 | Secret | 内容 |

@@ -20,8 +20,8 @@ jobs:
           file: docker/Dockerfile.merged
           build-args: SOURCE_COMMIT=${{ github.sha }}
           tags: |
-            djavgira/mini-api:latest
-            djavgira/mini-api:${{ github.sha }}
+            painwind/mini-api:latest
+            painwind/mini-api:${{ github.sha }}
           push: true
           cache-from: type=gha
           cache-to: type=gha,mode=max
