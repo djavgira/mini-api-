@@ -18,3 +18,6 @@ coverage/
 # Python bytecode from the gateway HTTP regressions
 __pycache__/
 *.pyc
+
+# Go build output from the analysis service
+/analytics-api/analytics-api
