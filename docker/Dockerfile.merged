@@ -96,6 +96,8 @@ COPY docker/supervisord.conf /etc/supervisor/supervisord.conf
 COPY docker/uni-api-programs.conf /etc/supervisor/conf.d/uni-api.conf
 COPY docker/parse-api-keys.awk /usr/local/bin/parse-api-keys.awk
 COPY docker/entrypoint.sh /usr/local/bin/entrypoint.sh
+# Ship the license and upstream attribution inside the published image.
+COPY LICENSE NOTICE /usr/share/doc/uni-api/
 RUN chmod 755 /docker-entrypoint.d/15-upstreams.envsh /usr/local/bin/entrypoint.sh /usr/local/bin/parse-api-keys.awk
 
 EXPOSE 8000

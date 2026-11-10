@@ -1,0 +1,26 @@
+uni-api
+=======
+
+This product bundles and extends work from the following Apache License 2.0
+projects:
+
+  uni-api
+  https://github.com/yym68686/uni-api
+  Copyright the uni-api authors
+
+  uni-api-web
+  https://github.com/yym68686/uni-api-web
+  Copyright the uni-api-web authors
+
+Both upstream repositories are licensed under the Apache License, Version 2.0.
+The full license text is in `LICENSE`. Modifications in this repository include
+the merged single-image deployment, the dark-only console theme, and the removal
+of upstream hosting and promotion material.
+
+Third-party components keep their own licenses:
+
+  lm-detector             https://github.com/Ikaleio/lm-detector
+  new-api protocol notes  https://github.com/QuantumNous/new-api
+
+Go dependencies under `analytics-api/go.mod` and the Rust dependencies in
+`Cargo.lock` retain their respective upstream licenses.

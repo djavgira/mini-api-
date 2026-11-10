@@ -1,4 +1,4 @@
-module github.com/yym68686/uni-api-web/analytics-api
+module github.com/djavgira/mini-api-/analytics-api
 
 go 1.24.3
 

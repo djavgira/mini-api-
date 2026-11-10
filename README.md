@@ -201,8 +201,9 @@ PostgreSQL 中，Cookie 为 HttpOnly + SameSite=Strict，前端不保存来源�
 | `DOCKERHUB_TOKEN` | Docker Hub 访问令牌（只读之外的 read-write 权限） |
 
 流水线不做版本号自增，也不跑测试；镜像的可见端口、健康检查与 `docker compose`
-部署完全一致。
+部署完全一致。只改文档（`**.md`、`docs/**`、`LICENSE`、`NOTICE`）的提交不触发构建。
 
 ## 许可
 
-Apache License 2.0，详见 `LICENSE`。
+Apache License 2.0，详见 `LICENSE`。本项目基于 `uni-api` 与 `uni-api-web` 二次开发，
+上游署名与第三方组件许可见 `NOTICE`。
