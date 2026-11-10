@@ -130,9 +130,17 @@ podman compose up -d --build
 ```
 
 `podman compose` 需要一个 compose provider（`podman-compose`，或调用已安装的
-`docker-compose`）。若不使用 compose，也可直接用 Podman 运行镜像并手工启动
-PostgreSQL，但入口脚本依赖 compose 传入的 `CONTROL_DATABASE_URL` 等环境变量，
-自行为全部变量赋值后才能启动。
+`docker-compose`）。rootless 环境下还需先启用 socket，否则 compose 无法连接：
+
+```sh
+systemctl --user enable --now podman.socket
+```
+
+compose 文件里的 `logging` 驱动（`json-file`）会被 Podman 忽略，改用 journald；
+镜像自带的 `HEALTHCHECK` 在两种运行方式下都生效。
+
+若不使用 compose，也可直接用 Podman 运行镜像并手工启动 PostgreSQL，但入口脚本
+依赖 compose 传入的 `CONTROL_DATABASE_URL` 等环境变量，自行为全部变量赋值后才能启动。
 
 ## 升级与迁移
 
