@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { controlRequest } from "./api";
+import { randomId } from "./randomId";
 
 interface RepairPreview {
   revision: string;
@@ -40,7 +41,7 @@ export function ChannelProtocolRepair({
     setBusy(true);
     setMessage("");
     const operationId =
-      action === "apply" ? crypto.randomUUID() : receipt?.operation_id;
+      action === "apply" ? randomId() : receipt?.operation_id;
     try {
       const result = await controlRequest<
         RepairPreview & {

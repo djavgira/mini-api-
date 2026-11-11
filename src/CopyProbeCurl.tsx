@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Check, Copy } from "lucide-react";
 import { controlRequest } from "./api";
+import { copyText } from "./copyText";
 import type { Probe } from "./Sub2apiChecks";
 import { Spinner } from "./ui";
 
@@ -46,7 +47,7 @@ export function CopyProbeCurl({ probe, kind, targets, label }: {
           : { probe_id: probe?.id, kind, targets }) },
       );
       signal.throwIfAborted();
-      await navigator.clipboard.writeText(result.curl);
+      await copyText(result.curl);
       if (!signal.aborted) {
         setCopied(true);
         setMessage(result.original ? "" : result.message || "已按当前配置生成");

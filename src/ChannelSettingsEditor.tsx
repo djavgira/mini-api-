@@ -28,6 +28,8 @@ import {
   ChevronDown,
 } from "lucide-react";
 import { parse, stringify } from "yaml";
+import { randomId } from "./randomId";
+import { copyText } from "./copyText";
 import { controlRequest } from "./api";
 import { TimeoutPolicyField, HedgingField } from "./TimeoutPolicyField";
 import {
@@ -372,7 +374,7 @@ function Keys({
   }
   async function copy(value: unknown, index: number) {
     try {
-      await navigator.clipboard.writeText(text(value));
+      await copyText(text(value));
       setCopied(index);
       setError("");
     } catch {
@@ -758,7 +760,7 @@ export function Editor({
       for (const provider of batch)
         if (provider !== row.provider)
           changes.push({ ...changes[0], provider });
-      const id = operation || crypto.randomUUID();
+      const id = operation || randomId();
       const body = {
         revision: view.revision,
         operation_id: id,
@@ -830,7 +832,7 @@ export function Editor({
         body: JSON.stringify({
           rollback_id: id,
           revision: view.revision,
-          operation_id: crypto.randomUUID(),
+          operation_id: randomId(),
         }),
       });
       setNotice(
@@ -1198,7 +1200,7 @@ export function Editor({
                                   method: "POST",
                                   body: JSON.stringify({
                                     revision: view.revision,
-                                    operation_id: crypto.randomUUID(),
+                                    operation_id: randomId(),
                                     changes: [settingsDiff(view, draft)],
                                   }),
                                 });

@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { Copy, Eye, EyeOff, Trash2, Check, Link2 } from "lucide-react";
 import { controlRequest } from "./api";
+import { copyText } from "./copyText";
 import { Spinner } from "./ui";
 import type { Channel } from "./types";
 import type { InstalledChannel, SubImportsQuery } from "./sub2apiImports";
@@ -46,7 +47,7 @@ export function ChannelAccess({
         ).api_keys;
       if (!result.length) throw new Error("此渠道没有可显示的 API key。");
       if (copy) {
-        await navigator.clipboard.writeText(result.join("\n"));
+        await copyText(result.join("\n"));
         setCopied(true);
       } else setKeys(result);
     } catch (e) {

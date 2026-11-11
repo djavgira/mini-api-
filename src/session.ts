@@ -1,5 +1,6 @@
 import { cleanBase } from "./api";
 import type { Connection } from "./types";
+import { randomId } from "./randomId";
 
 const storageKey = "uni-console-connection:v1";
 
@@ -16,7 +17,7 @@ export function loadConnection(): Connection | null {
         base: cleanBase(saved.base),
         key: saved.key.trim(),
         sourceId: typeof saved.sourceId === "string" ? saved.sourceId : undefined,
-        session: crypto.randomUUID(),
+        session: randomId(),
       };
   } catch {
     // Invalid or unavailable session storage leaves the login form accessible.

@@ -4,6 +4,7 @@ import { Plus, X, SlidersHorizontal, Braces, Download } from "lucide-react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { parse, stringify } from "yaml";
 import { ApiError, controlRequest } from "./api";
+import { randomId } from "./randomId";
 import type { ConsoleSource } from "./SourceSettings";
 import type { KeyInfo } from "./types";
 
@@ -382,7 +383,7 @@ export function CreateChannel({
       );
       const mutation = {
         revision: controls.revision,
-        operation_id: crypto.randomUUID(),
+        operation_id: randomId(),
         changes,
       };
       await controlRequest(`${path}/validate`, {

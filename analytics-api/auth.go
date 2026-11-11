@@ -94,18 +94,34 @@ func (s *Service) authenticate(next http.Handler) http.Handler {
 					return
 				}
 				if origin := r.Header.Get("Origin"); origin != "" {
+					// Same-origin writes stay allowed whatever address the console
+					// was opened on, because a cross-site page cannot forge Host.
+					// PUBLIC_ORIGIN only adds a second accepted origin for
+					// deployments that are reached through a different host name.
 					u, e := url.Parse(origin)
-					host := r.Host
-					if forwarded := r.Header.Get("X-Forwarded-Host"); forwarded != "" {
-						host = forwarded
-					}
-					if s.cfg.PublicOrigin != "" {
-						expected, err := url.Parse(s.cfg.PublicOrigin)
-						if err != nil || e != nil || u.Scheme != expected.Scheme || u.Host != expected.Host {
-							http.Error(w, "cross-site request rejected", 403)
-							return
+					// The proxy forwards the original Host with its port, and
+					// keeps X-Forwarded-Host as a second spelling of it, so a
+					// console opened on any address keeps working.
+					scheme := r.Header.Get("X-Forwarded-Proto")
+					if scheme == "" {
+						scheme = "http"
+						if r.TLS != nil {
+							scheme = "https"
 						}
-					} else if e != nil || u.Host != host {
+					}
+					candidates := []string{r.Host, r.Header.Get("X-Forwarded-Host")}
+					allowed := false
+					for _, host := range candidates {
+						if e == nil && host != "" && u.Host == host && u.Scheme == scheme {
+							allowed = true
+							break
+						}
+					}
+					if !allowed && s.cfg.PublicOrigin != "" {
+						expected, err := url.Parse(s.cfg.PublicOrigin)
+						allowed = err == nil && e == nil && u.Scheme == expected.Scheme && u.Host == expected.Host
+					}
+					if !allowed {
 						http.Error(w, "cross-site request rejected", 403)
 						return
 					}

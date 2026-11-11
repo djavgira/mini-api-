@@ -1,4 +1,5 @@
 import { channelLatency, latencyLabel } from "./channelLatency";
+import { randomId } from "./randomId";
 import { readAccountSession } from "./accountSession";
 import type { AccountSession } from "./accountSession";
 import type { ManagementPagePosition } from "./managementQuery";
@@ -383,7 +384,7 @@ function ConnectionForm({
       const connection = {
         base: cleanBase(base),
         key: key.trim(),
-        session: crypto.randomUUID(),
+        session: randomId(),
       };
       if (!connection.key) throw new Error("请输入平台访问密钥。");
       const keys = await readKeys(connection, run.signal);
@@ -1670,7 +1671,7 @@ function Dashboard({
                     templateId={channelSort.templateId}
                     suggestedTemplateId={!Object.hasOwn(sortPreferences.scopes,channelScope) ? sortPreferences.modelTemplates[model] : undefined}
                     onSaveTemplate={(name,rules) => {
-                      const id=crypto.randomUUID();
+                      const id=randomId();
                       setSortPreferences(current=>({...current,templates:[...current.templates,{id,name,rules:rules.map(r=>({...r}))}]}));
                       return id;
                     }}

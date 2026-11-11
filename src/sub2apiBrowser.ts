@@ -1,3 +1,5 @@
+import { randomId } from "./randomId";
+
 const channel = "uni-api-browser-login-v1";
 export interface BrowserLoginInput {
   base: string;
@@ -19,7 +21,7 @@ export interface BrowserAuth {
 export function browserHelperAvailable(
   kind: "sub2api" | "newapi" = "sub2api",
 ): Promise<boolean> {
-  const id = crypto.randomUUID();
+  const id = randomId();
   return new Promise((resolve) => {
     const listener = (event: MessageEvent) => {
       if (
@@ -52,7 +54,7 @@ export function loginWithBrowser(
   input: BrowserLoginInput,
   signal: AbortSignal,
 ): Promise<BrowserAuth> {
-  const id = crypto.randomUUID();
+  const id = randomId();
   return new Promise((resolve, reject) => {
     const cleanup = () => {
       clearTimeout(timer);

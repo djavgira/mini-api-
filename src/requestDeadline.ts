@@ -1,3 +1,5 @@
+import { randomId } from "./randomId";
+
 // One deadline covers headers AND body decoding. Caller cancellation stays
 // cancellation; timeouts carry a safe correlation ID and never retry writes.
 export class RequestTimeoutError extends Error {
@@ -19,7 +21,7 @@ export async function withRequestDeadline<T>(
 ): Promise<T> {
   const timeout = AbortSignal.timeout(milliseconds);
   const combined = signal ? AbortSignal.any([signal, timeout]) : timeout;
-  const requestId = crypto.randomUUID();
+  const requestId = randomId();
   const started = performance.now();
   let headersAt: number | undefined;
   try {
